@@ -1,0 +1,259 @@
+[gd_scene format=3 uid="uid://dd2dv8yjt4i36"]
+
+[ext_resource type="Shader" uid="uid://dtwpyb0puplhd" path="res://Shaders/Water.gdshader" id="1_nphy7"]
+[ext_resource type="ArrayMesh" uid="uid://cyok72ibxithx" path="res://Assets/WaterStone1.res" id="2_bo3s2"]
+[ext_resource type="Shader" uid="uid://bkwppjti56qlu" path="res://Shaders/EdgeDetection.gdshader" id="2_vm8j3"]
+[ext_resource type="ArrayMesh" uid="uid://c3w1k5dgvqn45" path="res://Assets/WaterStone2.res" id="3_vm8j3"]
+[ext_resource type="ArrayMesh" uid="uid://8l5bebfjpypy" path="res://Assets/WaterStone3.res" id="4_7hm45"]
+[ext_resource type="Script" uid="uid://dx0oulytcegca" path="res://Scence/camera_3d.gd" id="5_cyolj"]
+[ext_resource type="Material" uid="uid://cvcctcqqtkrdn" path="res://Assets/stonel.tres" id="7_7hm45"]
+
+[sub_resource type="Environment" id="Environment_bo3s2"]
+background_mode = 1
+background_color = Color(0.56078434, 0.7372549, 0.9411765, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.41960785, 0.6666667, 0.88235295, 1)
+tonemap_exposure = 0.8
+ssao_enabled = true
+ssao_radius = 2.0
+sdfgi_cascades = 1
+sdfgi_min_cell_size = 20.0
+glow_enabled = true
+glow_bloom = 0.2
+
+[sub_resource type="Gradient" id="Gradient_vm8j3"]
+colors = PackedColorArray(0.7411765, 0.8627451, 1, 1, 0, 0.6509804, 0.90588236, 1)
+
+[sub_resource type="GradientTexture1D" id="GradientTexture1D_7hm45"]
+gradient = SubResource("Gradient_vm8j3")
+
+[sub_resource type="Gradient" id="Gradient_7hm45"]
+colors = PackedColorArray(0.8627451, 0.8627451, 0.8627451, 1, 1, 1, 1, 1)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_j1svy"]
+noise_type = 2
+frequency = 0.008
+fractal_octaves = 4
+fractal_gain = 0.75
+cellular_return_type = 0
+domain_warp_enabled = true
+domain_warp_type = 2
+domain_warp_amplitude = 20.0
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_cyolj"]
+width = 256
+noise = SubResource("FastNoiseLite_j1svy")
+color_ramp = SubResource("Gradient_7hm45")
+seamless = true
+
+[sub_resource type="Gradient" id="Gradient_6rlc7"]
+offsets = PackedFloat32Array(0, 0.682)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_11o03"]
+noise_type = 2
+frequency = 0.1
+domain_warp_enabled = true
+domain_warp_frequency = 0.01
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_tqwws"]
+width = 320
+height = 180
+noise = SubResource("FastNoiseLite_11o03")
+color_ramp = SubResource("Gradient_6rlc7")
+seamless = true
+seamless_blend_skirt = 1.0
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_7hm45"]
+render_priority = 0
+shader = ExtResource("2_vm8j3")
+shader_parameter/depth_threshold = 0.01099999982398
+shader_parameter/depth_normal_threshold_scale = 0.0499999988824
+shader_parameter/normal_threshold = 0.2999999932944
+shader_parameter/edge_color = Color(0.27450982, 0.27450982, 0.27450982, 0.76862746)
+shader_parameter/edge_scale = 1.0000000475
+shader_parameter/watercolor_noise_tex = SubResource("NoiseTexture2D_tqwws")
+shader_parameter/watercolor_visibility = 0.290000013775
+shader_parameter/watercolor_strength = 0.050000002375
+shader_parameter/watercolor_speed = 0.01
+shader_parameter/color_variation = 0.0
+shader_parameter/fog_color_ramp = SubResource("GradientTexture1D_7hm45")
+shader_parameter/fog_noise_tex = SubResource("NoiseTexture2D_cyolj")
+shader_parameter/fog_height = 4.89
+shader_parameter/fog_smoothness = 0.0
+shader_parameter/clouds_strength = 0.0
+shader_parameter/clouds_height = -2.28
+shader_parameter/clouds_smoothness = -3.42
+shader_parameter/clouds_color = Color(0.74509805, 0.69411767, 0.40784314, 1)
+shader_parameter/sun_color = Color(1, 0.6784314, 0.2509804, 1)
+shader_parameter/sun_dir = Vector3(1, 1, 1)
+shader_parameter/sun_power = 2.35
+shader_parameter/vignette_threshold = 0.5
+shader_parameter/vignette_smoothness = 0.4
+shader_parameter/impact = 0.0
+shader_parameter/impact_magnitude = 0.999999977648
+shader_parameter/impact_pos = Vector2(0, 0)
+shader_parameter/deformation_strength = 5.0
+shader_parameter/screenshake_magnitude = 0.2
+shader_parameter/screenshake_speed = 40.0
+shader_parameter/vignette_impact_color = Color(0.5176471, 0, 0, 1)
+shader_parameter/zoom_magnitude = 0.65
+shader_parameter/dead = 0.0
+shader_parameter/dead_color = Color(0.79607844, 0, 0, 1)
+shader_parameter/aux = Vector4(0, 1, 0, 0)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_cyolj"]
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_j1svy"]
+width = 256
+height = 256
+noise = SubResource("FastNoiseLite_cyolj")
+
+[sub_resource type="Gradient" id="Gradient_j1svy"]
+offsets = PackedFloat32Array(0.385, 1)
+colors = PackedColorArray(0.03529412, 0.18039216, 0.31764707, 1, 0.3372549, 0.6509804, 0.9019608, 1)
+
+[sub_resource type="GradientTexture1D" id="GradientTexture1D_6rlc7"]
+gradient = SubResource("Gradient_j1svy")
+
+[sub_resource type="Gradient" id="Gradient_11o03"]
+offsets = PackedFloat32Array(0.113, 0.522, 0.833)
+colors = PackedColorArray(0, 0.14509805, 0.17254902, 1, 0, 0.16862746, 0.34901962, 1, 0.078431375, 0.3647059, 0.4392157, 1)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_tqwws"]
+noise_type = 0
+frequency = 0.0514
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_6j1tl"]
+noise = SubResource("FastNoiseLite_tqwws")
+color_ramp = SubResource("Gradient_11o03")
+seamless = true
+seamless_blend_skirt = 1.0
+
+[sub_resource type="Gradient" id="Gradient_uuko7"]
+colors = PackedColorArray(0, 0, 0, 1, 0.050980393, 0.15686275, 0.21568628, 1)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_75cxh"]
+noise_type = 2
+frequency = 0.0301
+fractal_octaves = 2
+cellular_return_type = 0
+domain_warp_enabled = true
+domain_warp_type = 2
+domain_warp_amplitude = 20.0
+domain_warp_fractal_octaves = 4
+domain_warp_fractal_gain = 0.25
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_k1qbg"]
+noise = SubResource("FastNoiseLite_75cxh")
+color_ramp = SubResource("Gradient_uuko7")
+seamless = true
+
+[sub_resource type="Gradient" id="Gradient_1byy8"]
+colors = PackedColorArray(0, 0, 0, 1, 0.09411765, 0.09411765, 0.09411765, 1)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_at5yh"]
+noise_type = 2
+frequency = 0.0145
+cellular_return_type = 6
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_gquax"]
+noise = SubResource("FastNoiseLite_at5yh")
+color_ramp = SubResource("Gradient_1byy8")
+seamless = true
+seamless_blend_skirt = 1.0
+
+[sub_resource type="Gradient" id="Gradient_21pml"]
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_015ey"]
+noise_type = 0
+frequency = 0.0106
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_hv38s"]
+noise = SubResource("FastNoiseLite_015ey")
+color_ramp = SubResource("Gradient_21pml")
+seamless = true
+as_normal_map = true
+seamless_blend_skirt = 1.0
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_vdktu"]
+render_priority = 90
+shader = ExtResource("1_nphy7")
+shader_parameter/base_color = Color(0, 0, 0, 1)
+shader_parameter/color_ramp_tex = SubResource("GradientTexture1D_6rlc7")
+shader_parameter/map_center_and_size = Vector3(0, 0, 0)
+shader_parameter/noise_tex = SubResource("NoiseTexture2D_k1qbg")
+shader_parameter/water_speed = 0.02
+shader_parameter/roughness = 1.0
+shader_parameter/normal_map = SubResource("NoiseTexture2D_hv38s")
+shader_parameter/normal_distortion = SubResource("NoiseTexture2D_gquax")
+shader_parameter/height_map = SubResource("NoiseTexture2D_6j1tl")
+shader_parameter/alpha = 1.0
+shader_parameter/ripples_speed = 0.0
+shader_parameter/ripples_radius = 200.0
+shader_parameter/ripples_width = 0.085
+shader_parameter/reflection_strength = 0.0
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_w7l7r"]
+size = Vector2(200, 200)
+
+[sub_resource type="BoxMesh" id="BoxMesh_vm8j3"]
+
+[node name="Main" type="Node3D" unique_id=2051628836]
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1782993548]
+transform = Transform3D(1, 0, 0, 0, 0.64278764, 0.76604444, 0, -0.76604444, 0.64278764, 0, 0, 0)
+light_color = Color(1, 0.89411765, 0.76862746, 1)
+light_energy = 1.75
+light_angular_distance = 0.5
+light_cull_mask = 4293918737
+shadow_enabled = true
+shadow_caster_mask = 4294967233
+
+[node name="DirectionalLight3D2" type="DirectionalLight3D" parent="." unique_id=1095568113]
+transform = Transform3D(1, 0, 0, 0, -0.64278764, -0.76604444, 0, 0.76604444, -0.64278764, 0, 0, 0)
+light_color = Color(0.11372549, 0.47843137, 0.7058824, 1)
+light_energy = 0.5
+light_angular_distance = 0.5
+light_specular = 0.0
+light_cull_mask = 4293918737
+shadow_opacity = 0.85
+shadow_caster_mask = 4294967233
+
+[node name="Camera3D" type="Camera3D" parent="." unique_id=1377717890]
+transform = Transform3D(0.8771462, -0.3395693, 0.3395693, 0, 0.70710677, 0.70710677, -0.4802235, -0.620236, 0.620236, 14.5, 37.11, 29.166)
+cull_mask = 1048545
+environment = SubResource("Environment_bo3s2")
+projection = 1
+current = true
+size = 7.059
+far = 100.0
+script = ExtResource("5_cyolj")
+
+[node name="Sprite3D" type="Sprite3D" parent="Camera3D" unique_id=1700413357]
+process_mode = 4
+transform = Transform3D(50, 0, 0, 0, 50, 0, 0, 0, 50, 0, 0, -1)
+sorting_offset = -500.0
+material_override = SubResource("ShaderMaterial_7hm45")
+cast_shadow = 0
+gi_mode = 0
+texture = SubResource("NoiseTexture2D_j1svy")
+
+[node name="Water" type="MeshInstance3D" parent="." unique_id=2087452125]
+material_override = SubResource("ShaderMaterial_vdktu")
+mesh = SubResource("PlaneMesh_w7l7r")
+
+[node name="WaterStone1" type="MeshInstance3D" parent="." unique_id=1903695376]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.187993, 2.3841858e-07, -3.8368251)
+mesh = ExtResource("2_bo3s2")
+
+[node name="WaterStone2" type="MeshInstance3D" parent="." unique_id=650644322]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.897809, 0, -2.1084514)
+mesh = ExtResource("3_vm8j3")
+
+[node name="WaterStone3" type="MeshInstance3D" parent="." unique_id=1551578511]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.014359, 0, -3.1979995)
+mesh = ExtResource("4_7hm45")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=32218695]
+material_override = ExtResource("7_7hm45")
+mesh = SubResource("BoxMesh_vm8j3")

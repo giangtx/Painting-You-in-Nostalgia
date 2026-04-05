@@ -1,0 +1,39 @@
+[gd_resource type="ShaderMaterial" format=3 uid="uid://c0eykurghh7mx"]
+
+[ext_resource type="Shader" uid="uid://dekpbosjgbkwa" path="res://Shaders/Foam.gdshader" id="1_6e8ye"]
+
+[sub_resource type="Gradient" id="Gradient_6e8ye"]
+colors = PackedColorArray(0.039215688, 0.38431373, 0.59607846, 1, 0.7764706, 0.8117647, 0.8352941, 1)
+
+[sub_resource type="GradientTexture1D" id="GradientTexture1D_24gdo"]
+gradient = SubResource("Gradient_6e8ye")
+
+[sub_resource type="Gradient" id="Gradient_g3m4g"]
+colors = PackedColorArray(1, 0, 0, 1, 0, 0.88235295, 0, 1)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_2l4w0"]
+frequency = 0.0056
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_bmagv"]
+noise = SubResource("FastNoiseLite_2l4w0")
+color_ramp = SubResource("Gradient_g3m4g")
+seamless = true
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_11eg5"]
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_f8jas"]
+noise = SubResource("FastNoiseLite_11eg5")
+seamless = true
+
+[resource]
+render_priority = 1
+shader = ExtResource("1_6e8ye")
+shader_parameter/threshold = 0.57
+shader_parameter/smoothness = 0.35
+shader_parameter/alpha_threshold = 0.07999999821184
+shader_parameter/speed = 0.05
+shader_parameter/tiling = 1.0
+shader_parameter/color = Color(0.7764706, 0.8117647, 0.8352941, 1)
+shader_parameter/color_tex = SubResource("GradientTexture1D_24gdo")
+shader_parameter/noise_tex = SubResource("NoiseTexture2D_f8jas")
+shader_parameter/flow_tex = SubResource("NoiseTexture2D_bmagv")

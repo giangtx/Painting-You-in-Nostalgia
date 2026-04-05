@@ -1,0 +1,14 @@
+[gd_scene format=3 uid="uid://dybkhdp5jlou2"]
+
+[ext_resource type="Script" uid="uid://crgyvo5fitp6k" path="res://Scence/drawing3d/drawing_plane.gd" id="1_r7tiu"]
+
+[node name="DrawingPlane" type="Node3D" unique_id=1631940951]
+script = ExtResource("1_r7tiu")
+
+[node name="GridMesh" type="MeshInstance3D" parent="." unique_id=1291966125]
+
+[node name="Body" type="StaticBody3D" parent="." unique_id=1211902993]
+
+[node name="Shape" type="CollisionShape3D" parent="Body" unique_id=511417552]
+
+[node name="StrokeContainer" type="Node3D" parent="." unique_id=1516541300]
