@@ -15,7 +15,7 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 [application]
 
 config/name="DrawnTheWorld"
-run/main_scene="uid://dd2dv8yjt4i36"
+run/main_scene="uid://b6g82o2gxo16t"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
 
