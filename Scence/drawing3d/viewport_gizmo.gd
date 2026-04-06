@@ -31,12 +31,12 @@ const AXES := [
 
 # Snap targets (yaw, pitch)
 const SNAP_ANGLES := {
-	"X":  [ 90.0,   0.0],
-	"-X": [-90.0,   0.0],
-	"Y":  [  0.0, -90.0],
-	"-Y": [  0.0,  90.0],
-	"Z":  [  0.0,   0.0],
-	"-Z": [180.0,   0.0],
+	"X":  [-90.0,   0.0],   # Right view — nhìn từ +X
+	"-X": [ 90.0,   0.0],   # Left view  — nhìn từ -X
+	"Y":  [  0.0, -90.0],   # Top view   — nhìn từ +Y
+	"-Y": [  0.0,  90.0],   # Bottom view
+	"Z":  [180.0,   0.0],   # Front view — nhìn từ +Z
+	"-Z": [  0.0,   0.0],   # Back view  — nhìn từ -Z
 }
 
 # ─── State ───────────────────────────────────────────────────

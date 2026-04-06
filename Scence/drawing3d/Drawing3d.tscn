@@ -15,7 +15,7 @@ sky_material = SubResource("ProceduralSkyMaterial_equ5b")
 
 [sub_resource type="Environment" id="Environment_wywpm"]
 background_mode = 1
-background_color = Color(0.101960786, 0.101960786, 0.18039216, 1)
+background_color = Color(0.79799736, 0.8044658, 0.9078169, 1)
 sky = SubResource("Sky_spliw")
 tonemap_mode = 2
 glow_enabled = true
@@ -42,11 +42,6 @@ transform = Transform3D(0.8660254, -0.17101006, 0.4698463, 0, 0.9396926, 0.34202
 projection = 1
 size = 8.0
 script = ExtResource("1_spliw")
-orbit_speed = null
-zoom_speed = null
-pan_speed = null
-min_zoom = null
-max_zoom = null
 
 [node name="GizmoContainer" type="Control" parent="." unique_id=701521982]
 layout_mode = 3

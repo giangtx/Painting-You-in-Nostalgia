@@ -3,34 +3,36 @@ class_name DrawingPlane
 extends Node3D
 
 # ─── Cấu hình ─────────────────────────────────────────────────
-@export var plane_size: Vector2 = Vector2(3.0, 2.0)
-@export var grid_color: Color   = Color(0.4, 0.6, 1.0, 0.25)
+@export var grid_color:   Color = Color(0.4, 0.6, 1.0, 0.25)
 @export var border_color: Color = Color(0.4, 0.6, 1.0, 0.6)
-
+@export var background_color: Color = Color(1.0, 1.0, 1.0, 0.08) 
 # ─── Refs ─────────────────────────────────────────────────────
-@onready var grid_mesh:        MeshInstance3D = $GridMesh
+@onready var grid_mesh:        MeshInstance3D  = $GridMesh
 @onready var collision_shape:  CollisionShape3D = $Body/Shape
-@onready var stroke_container: Node3D = $StrokeContainer
+@onready var stroke_container: Node3D           = $StrokeContainer
 
-# ─── Lưu trữ ─────────────────────────────────────────────────
-var strokes: Array = []   # ArrayMesh của từng stroke đã baked
+# ─── State ────────────────────────────────────────────────────
+var plane_size:    Vector2     = Vector2.ZERO
+var canvas:        PaintCanvas = null
+var _paint_mesh:   MeshInstance3D = null
+var _display_size: Vector2     = Vector2.ZERO
 
-# ─── Khởi tạo từ PlaneGenerator data ─────────────────────────
+var has_strokes: bool:
+	get: return canvas != null and canvas.has_strokes
+
+# ─── Khởi tạo ────────────────────────────────────────────────
 func initialize(data: Dictionary) -> void:
-	plane_size      = data["size"]
+	plane_size = data["size"]
 
 	match data["type"]:
 		CurveDetector.Type.STRAIGHT:
 			global_position = data["center"]
-			var right  : Vector3 = data["right"]
-			var up     : Vector3 = data["up"]
-			var normal : Vector3 = data["normal"]
-			global_basis = Basis(right, up, -normal)
+			global_basis    = Basis(data["right"], data["up"], -data["normal"])
 			_build_grid()
 			_build_collision()
+			_setup_paint_canvas_flat()
 
 		CurveDetector.Type.CURVED:
-			# Node tại origin — points là world coords
 			global_position = Vector3.ZERO
 			_build_surface_mesh(data["points"], data["up"], data["height"])
 
@@ -40,13 +42,108 @@ func initialize(data: Dictionary) -> void:
 			closed.append(data["points"][0])
 			_build_surface_mesh(closed, data["up"], data["height"])
 
-func _build_surface_mesh(points: Array, up: Vector3, height: float) -> void:
-	print("_build_surface_mesh: points=", points.size(), " up=", up, " height=", height)
-	print("points[0]=", points[0], " points[-1]=", points[-1])
-	print("node global_pos=", global_position)
-	var hh := height * 0.5
+# ─── Setup paint canvas (chỉ cho STRAIGHT) ───────────────────
+func _setup_paint_canvas_flat() -> void:
+	_display_size = Vector2(plane_size.x, 50.0)
+	canvas = PaintCanvas.new()
+	add_child(canvas)
+	canvas.setup(_display_size)
 
-	# Solid mesh
+	# Mặt trước
+	_paint_mesh      = MeshInstance3D.new()
+	var quad         := QuadMesh.new()
+	quad.size         = _display_size
+	_paint_mesh.mesh  = quad
+	var mat          := ShaderMaterial.new()
+	mat.shader        = _create_paint_shader()
+	mat.set_shader_parameter("paint_texture", canvas.img_texture)
+	_paint_mesh.material_override = mat
+	_paint_mesh.position          = Vector3(0, 0, 0.001)
+	add_child(_paint_mesh)
+
+	# Mặt sau
+	var paint_mesh_back              := MeshInstance3D.new()
+	var quad_back                    := QuadMesh.new()
+	quad_back.size                    = _display_size
+	paint_mesh_back.mesh              = quad_back
+	var mat_back                     := ShaderMaterial.new()
+	mat_back.shader                   = _create_paint_shader_back()
+	mat_back.set_shader_parameter("paint_texture", canvas.img_texture)
+	paint_mesh_back.material_override = mat_back
+	paint_mesh_back.position          = Vector3(0, 0, -0.001)
+	add_child(paint_mesh_back)
+
+func _create_paint_shader() -> Shader:
+	var s    := Shader.new()
+	s.code    = """
+shader_type spatial;
+render_mode unshaded, cull_disabled, blend_mix;
+uniform sampler2D paint_texture : source_color;
+void fragment() {
+	vec4 col = texture(paint_texture, UV);
+	ALBEDO = col.rgb;
+	ALPHA  = col.a;
+}
+"""
+	return s
+
+func _create_paint_shader_back() -> Shader:
+	var s  := Shader.new()
+	s.code  = """
+shader_type spatial;
+render_mode unshaded, cull_disabled, blend_mix;
+uniform sampler2D paint_texture : source_color;
+void fragment() {
+    vec2 uv = vec2(UV.x, UV.y);
+    vec4 col = texture(paint_texture, uv);
+    ALBEDO = col.rgb;
+    ALPHA  = col.a;
+}
+"""
+	return s
+
+# ─── Paint API ───────────────────────────────────────────────
+func paint_at_world(world_point: Vector3) -> bool:
+	if canvas == null:
+		return false
+	var local    := to_local(world_point)
+	canvas.paint_at_local(Vector2(local.x, local.y), _display_size)
+	return true
+
+func paint_line_world(from_world: Vector3, to_world: Vector3) -> bool:
+	if canvas == null:
+		return false
+	var from_l := to_local(from_world)
+	var to_l   := to_local(to_world)
+	canvas.paint_line(
+		Vector2(from_l.x, from_l.y),
+		Vector2(to_l.x,   to_l.y),
+		_display_size
+	)
+	return true
+
+# ─── Flat grid ───────────────────────────────────────────────
+func _build_grid() -> void:
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode    = BaseMaterial3D.CULL_DISABLED
+	mat.albedo_color = background_color
+
+	var quad  := QuadMesh.new()
+	quad.size  = Vector2(plane_size.x, 50.0)
+
+	grid_mesh.mesh              = quad
+	grid_mesh.material_override = mat
+
+func _build_collision() -> void:
+	var shape  := BoxShape3D.new()
+	shape.size  = Vector3(plane_size.x, 50.0, 0.1)
+	collision_shape.shape = shape
+
+# ─── Curved / Cylinder ───────────────────────────────────────
+func _build_surface_mesh(points: Array, up: Vector3, height: float) -> void:
+	var hh  := height * 0.5
 	var mat := StandardMaterial3D.new()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.cull_mode    = BaseMaterial3D.CULL_DISABLED
@@ -74,7 +171,6 @@ func _build_surface_mesh(points: Array, up: Vector3, height: float) -> void:
 	mi_solid.material_override = mat
 	add_child(mi_solid)
 
-	# Border lines
 	var bmat := StandardMaterial3D.new()
 	bmat.shading_mode               = BaseMaterial3D.SHADING_MODE_UNSHADED
 	bmat.vertex_color_use_as_albedo = true
@@ -100,7 +196,6 @@ func _build_surface_mesh(points: Array, up: Vector3, height: float) -> void:
 	mi_border.material_override = bmat
 	add_child(mi_border)
 
-	# Collision
 	var faces := PackedVector3Array()
 	for i in range(points.size() - 1):
 		var p0 : Vector3 = points[i]
@@ -113,68 +208,29 @@ func _build_surface_mesh(points: Array, up: Vector3, height: float) -> void:
 	cshape.set_faces(faces)
 	collision_shape.shape = cshape
 
-func _build_grid() -> void:
-	var im  := ImmediateMesh.new()
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode               = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.vertex_color_use_as_albedo = true
-	mat.transparency               = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.cull_mode                  = BaseMaterial3D.CULL_DISABLED
-
-	im.surface_begin(Mesh.PRIMITIVE_LINES)
-
-	var hw        := plane_size.x * 0.5
-	var display_h := 25.0
-	var hh        := display_h
-
-	im.surface_set_color(border_color)
-	im.surface_add_vertex(Vector3(-hw, -hh, 0))
-	im.surface_add_vertex(Vector3(-hw,  hh, 0))
-	im.surface_add_vertex(Vector3( hw, -hh, 0))
-	im.surface_add_vertex(Vector3( hw,  hh, 0))
-
-	im.surface_set_color(border_color * Color(1,1,1,0.25))
-	im.surface_add_vertex(Vector3(-hw, -hh, 0))
-	im.surface_add_vertex(Vector3( hw, -hh, 0))
-	im.surface_add_vertex(Vector3(-hw,  hh, 0))
-	im.surface_add_vertex(Vector3( hw,  hh, 0))
-
-	var cols := 5
-	for i in range(1, cols):
-		var x := -hw + plane_size.x * (float(i) / cols)
-		im.surface_set_color(grid_color)
-		im.surface_add_vertex(Vector3(x, -hh, 0))
-		im.surface_add_vertex(Vector3(x,  hh, 0))
-
-	var spacing   := maxf(plane_size.x / 5.0, 0.3)
-	var row_count := int(hh / spacing) + 1
-	for i in range(-row_count, row_count + 1):
-		var y := float(i) * spacing
-		im.surface_set_color(grid_color)
-		im.surface_add_vertex(Vector3(-hw, y, 0))
-		im.surface_add_vertex(Vector3( hw, y, 0))
-
-	im.surface_end()              # ← thiếu dòng này
-	grid_mesh.mesh = im           # ← và 2 dòng này
-	grid_mesh.material_override = mat
-
-func _build_collision() -> void:
-	var shape  := BoxShape3D.new()
-	shape.size  = Vector3(plane_size.x, 50.0, 0.02)
-	collision_shape.shape = shape
-
-# ─── Convert world point → tọa độ 2D local trên plane ────────
-func world_to_local_2d(world_point: Vector3) -> Vector2:
-	var local := to_local(world_point)
-	return Vector2(local.x, local.y)
-
-# ─── Thêm stroke đã baked ─────────────────────────────────────
-func add_stroke(mesh_inst: MeshInstance3D) -> void:
-	stroke_container.add_child(mesh_inst)
-	strokes.append(mesh_inst)
-
+# ─── Visibility ───────────────────────────────────────────────
 func hide_grid() -> void:
 	grid_mesh.visible = false
 
 func show_grid() -> void:
 	grid_mesh.visible = true
+
+func world_to_local_2d(world_point: Vector3) -> Vector2:
+	var local := to_local(world_point)
+	return Vector2(local.x, local.y)
+
+func restore() -> void:
+	if canvas == null or _paint_mesh == null:
+		return
+	# Re-apply texture vào shader sau khi visible lại
+	(_paint_mesh.material_override as ShaderMaterial)\
+		.set_shader_parameter("paint_texture", canvas.img_texture)
+	visible = true
+
+func set_active(active: bool) -> void:
+	var body := get_node("Body") as StaticBody3D
+	if body:
+		body.set_process_mode(
+			Node.PROCESS_MODE_INHERIT if active 
+			else Node.PROCESS_MODE_DISABLED
+		)

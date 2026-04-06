@@ -58,9 +58,13 @@ func _input(event: InputEvent) -> void:
 		# Zoom bằng scroll
 		elif event.button_index == MOUSE_BUTTON_WHEEL_UP:
 			_distance = clampf(_distance - zoom_speed, min_zoom, max_zoom)
+			if projection == Camera3D.PROJECTION_ORTHOGONAL:
+				size = _distance * tan(deg_to_rad(fov * 0.5)) * 2.0
 			_apply_transform()
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			_distance = clampf(_distance + zoom_speed, min_zoom, max_zoom)
+			if projection == Camera3D.PROJECTION_ORTHOGONAL:
+				size = _distance * tan(deg_to_rad(fov * 0.5)) * 2.0
 			_apply_transform()
 
 	# --- Orbit & Pan khi kéo chuột ---

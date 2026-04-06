@@ -4,6 +4,8 @@
 
 [node name="DrawingPlane" type="Node3D" unique_id=1631940951]
 script = ExtResource("1_r7tiu")
+grid_color = Color(0.4, 0.6, 1, 0)
+background_color = Color(0.87058824, 0.87058824, 0.87058824, 0.54901963)
 
 [node name="GridMesh" type="MeshInstance3D" parent="." unique_id=1291966125]
 
