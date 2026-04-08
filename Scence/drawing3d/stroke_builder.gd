@@ -2,30 +2,41 @@
 class_name StrokeBuilder
 extends Node
 
-@export var stroke_width: float = 0.05
-@export var stroke_color: Color = Color.BLACK
+@export var brushes:         Array[BrushPreset] = []
+var current_brush_index:     int                = 0
+var current_color:           Color              = Color.BLACK
 
-const SIDES    := 6       # số cạnh của cross-section
-const MIN_DIST := 0.005
+const MIN_DIST := 0.003
 
 var _points:       Array[Vector3] = []
 var _camera:       Camera3D       = null
 var _cam_forward:  Vector3        = Vector3.ZERO
+var _cam_right:    Vector3        = Vector3.ZERO
+var _cam_up:       Vector3        = Vector3.ZERO
 var _preview_inst: MeshInstance3D = null
 var _parent:       Node3D         = null
+var _rng:          RandomNumberGenerator = RandomNumberGenerator.new()
 
 func setup(camera: Camera3D, parent: Node3D) -> void:
 	_camera = camera
 	_parent = parent
 
+func get_current_preset() -> BrushPreset:
+	if brushes.is_empty():
+		return null
+	return brushes[clamp(current_brush_index, 0, brushes.size() - 1)]
+
 func start_stroke(world_point: Vector3) -> void:
 	_points.clear()
 	_points.append(world_point)
 	_cam_forward = -_camera.global_basis.z
+	_cam_right   =  _camera.global_basis.x
+	_cam_up      =  _camera.global_basis.y
+	_rng.randomize()
 
 	if _preview_inst != null:
 		_preview_inst.queue_free()
-	_preview_inst        = MeshInstance3D.new()
+	_preview_inst           = MeshInstance3D.new()
 	_preview_inst.top_level = true
 	_parent.add_child(_preview_inst)
 
@@ -44,8 +55,7 @@ func finish_stroke() -> MeshInstance3D:
 			_preview_inst = null
 		_points.clear()
 		return null
-
-	var baked := _build_cylinder(_points)
+	var baked := _build_stamp_mesh(_points)
 	if _preview_inst:
 		_preview_inst.queue_free()
 		_preview_inst = null
@@ -64,120 +74,114 @@ func is_drawing() -> bool:
 func _update_preview() -> void:
 	if _preview_inst == null or _points.size() < 2:
 		return
-	var built := _build_cylinder(_points)
+	var built := _build_stamp_mesh(_points)
 	if built:
 		_preview_inst.mesh              = built.mesh
 		_preview_inst.material_override = built.material_override
 		built.queue_free()
 
-# ─── Build cylindrical stroke ─────────────────────────────────
-func _build_cylinder(points: Array) -> MeshInstance3D:
+func _build_stamp_mesh(points: Array) -> MeshInstance3D:
 	if points.size() < 2:
 		return null
 
-	var radius := stroke_width * 0.5
+	var preset    := get_current_preset()
+	var size      := preset.brush_size      if preset else 0.08
+	var thickness := preset.thickness       if preset else 0.5
+	var spacing   := size * (preset.spacing_percent if preset else 0.2)
+	spacing        = maxf(spacing, MIN_DIST)
 
-	# ── Bước 1: tính frame (tangent, normal, binormal) tại mỗi điểm
-	# Dùng Parallel Transport để tránh twisting
-	var tangents  : Array[Vector3] = []
-	var normals   : Array[Vector3] = []
-	var binormals : Array[Vector3] = []
+	# ── Tính stamp positions dọc theo path ───────────────────
+	var stamp_positions : Array[Vector3] = []
+	stamp_positions.append(points[0])
+	var accumulated := 0.0
 
-	# Tangent tại mỗi điểm
-	for i in range(points.size()):
-		var t : Vector3
-		if i == 0:
-			t = (points[1] - points[0]).normalized()
-		elif i == points.size() - 1:
-			t = (points[i] - points[i-1]).normalized()
-		else:
-			var a = (points[i]   - points[i-1]).normalized()
-			var b = (points[i+1] - points[i]).normalized()
-			t      = (a + b).normalized()
-			if t.length() < 0.001:
-				t = a
-		tangents.append(t)
-
-	# Normal đầu tiên = từ cam_forward
-	var n0 := _cam_forward.cross(tangents[0]).normalized()
-	if n0.length() < 0.001:
-		n0 = Vector3.UP.cross(tangents[0]).normalized()
-	if n0.length() < 0.001:
-		n0 = Vector3.RIGHT
-	normals.append(n0)
-	binormals.append(tangents[0].cross(n0).normalized())
-
-	# Parallel transport: propagate frame dọc theo curve
 	for i in range(1, points.size()):
-		var t_prev := tangents[i - 1]
-		var t_curr := tangents[i]
-		var n_prev := normals[i - 1]
+		var seg_len = points[i].distance_to(points[i-1])
+		accumulated  += seg_len
+		while accumulated >= spacing:
+			accumulated -= spacing
+			var t   = (seg_len - accumulated) / seg_len
+			var pos = points[i-1].lerp(points[i], t)
+			stamp_positions.append(pos)
 
-		# Rotate normal theo sự thay đổi tangent
-		var axis  := t_prev.cross(t_curr)
-		var angle := t_prev.angle_to(t_curr)
+	if stamp_positions.is_empty():
+		return null
 
-		var n_curr : Vector3
-		if axis.length() < 0.0001 or absf(angle) < 0.0001:
-			n_curr = n_prev
-		else:
-			n_curr = n_prev.rotated(axis.normalized(), angle)
+	# ── Build box stamps ──────────────────────────────────────
+	var verts   := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var uvs     := PackedVector2Array()
+	var colors  := PackedColorArray()
 
-		# Re-orthogonalize để tránh drift
-		n_curr = (n_curr - t_curr * t_curr.dot(n_curr)).normalized()
-		if n_curr.length() < 0.001:
-			n_curr = normals[i - 1]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = _rng.seed
 
-		normals.append(n_curr)
-		binormals.append(t_curr.cross(n_curr).normalized())
+	for pos in stamp_positions:
+		var stamp_angle   := rng.randf_range(-1.0, 1.0) * (preset.angle_jitter   if preset else 0.0)
+		var stamp_scale   := 1.0 + rng.randf_range(-1.0, 1.0) * (preset.size_jitter    if preset else 0.1)
+		var stamp_opacity := clampf(
+			1.0 + rng.randf_range(-1.0, 1.0) * (preset.opacity_jitter if preset else 0.1),
+			0.0, 1.0
+		)
+		var scatter_offset := Vector3.ZERO
+		if preset and preset.scatter > 0.0:
+			scatter_offset = (
+				_cam_right * rng.randf_range(-1.0, 1.0) +
+				_cam_up    * rng.randf_range(-1.0, 1.0)
+			) * preset.scatter * size
 
-	# ── Bước 2: tạo ring vertices tại mỗi điểm ───────────────
-	# ring[i][j] = vị trí vertex j trên ring i
-	var rings : Array = []
-	for i in range(points.size()):
-		var ring : Array[Vector3] = []
-		for j in range(SIDES):
-			var angle := TAU * float(j) / float(SIDES)
-			var offset := normals[i] * cos(angle) * radius \
-						+ binormals[i] * sin(angle) * radius
-			ring.append(points[i] + offset)
-		rings.append(ring)
+		var half_w := size * stamp_scale * 0.5
+		var half_d := half_w * thickness
+		var center := pos + scatter_offset
 
-	# ── Bước 3: build mesh từ rings ───────────────────────────
-	var verts  := PackedVector3Array()
-	var uvs    := PackedVector2Array()
-	var colors := PackedColorArray()
+		var cos_a := cos(stamp_angle)
+		var sin_a := sin(stamp_angle)
+		var r     := (_cam_right * cos_a + _cam_up * sin_a).normalized()
+		var u     := (_cam_right * (-sin_a) + _cam_up * cos_a).normalized()
+		var fwd   := _cam_forward
 
-	var total_len := 0.0
-	var lens      : Array[float] = [0.0]
-	for i in range(1, points.size()):
-		total_len += (points[i] - points[i-1]).length()
-		lens.append(total_len)
+		var col := Color(
+			current_color.r, current_color.g, current_color.b,
+			current_color.a * (preset.opacity if preset else 1.0) * stamp_opacity
+		)
 
-	# Nối các ring liền kề thành quad strip
-	for i in range(points.size() - 1):
-		var u0 := lens[i]   / maxf(total_len, 0.001)
-		var u1 := lens[i+1] / maxf(total_len, 0.001)
+		# 8 corners
+		var ftl := center + u * half_w - r * half_w + fwd * half_d
+		var ftr := center + u * half_w + r * half_w + fwd * half_d
+		var fbl := center - u * half_w - r * half_w + fwd * half_d
+		var fbr := center - u * half_w + r * half_w + fwd * half_d
+		var btl := center + u * half_w - r * half_w - fwd * half_d
+		var btr := center + u * half_w + r * half_w - fwd * half_d
+		var bbl := center - u * half_w - r * half_w - fwd * half_d
+		var bbr := center - u * half_w + r * half_w - fwd * half_d
 
-		for j in range(SIDES):
-			var j_next := (j + 1) % SIDES
+		# Normal của từng mặt (world space)
+		var n_front  :=  fwd
+		var n_back   := -fwd
+		var n_top    :=  u
+		var n_bottom := -u
+		var n_left   := -r
+		var n_right  :=  r
 
-			var v0 := float(j)      / float(SIDES)
-			var v1 := float(j_next) / float(SIDES)
-
-			var a : Vector3 = rings[i][j]
-			var b : Vector3 = rings[i][j_next]
-			var c : Vector3 = rings[i+1][j]
-			var d : Vector3 = rings[i+1][j_next]
-
-			# Triangle 1
-			verts.append(a); uvs.append(Vector2(u0, v0)); colors.append(stroke_color)
-			verts.append(b); uvs.append(Vector2(u0, v1)); colors.append(stroke_color)
-			verts.append(d); uvs.append(Vector2(u1, v1)); colors.append(stroke_color)
-			# Triangle 2
-			verts.append(a); uvs.append(Vector2(u0, v0)); colors.append(stroke_color)
-			verts.append(d); uvs.append(Vector2(u1, v1)); colors.append(stroke_color)
-			verts.append(c); uvs.append(Vector2(u1, v0)); colors.append(stroke_color)
+		# Helper để add 1 quad (2 triangles) với normal cố định
+		# Front
+		_add_quad(verts, normals, uvs, colors,
+			fbl, fbr, ftr, ftl, n_front, col)
+		# Back
+		_add_quad(verts, normals, uvs, colors,
+			bbr, bbl, btl, btr, n_back, col)
+		# Top
+		_add_quad(verts, normals, uvs, colors,
+			ftl, ftr, btr, btl, n_top, col)
+		# Bottom
+		_add_quad(verts, normals, uvs, colors,
+			fbr, fbl, bbl, bbr, n_bottom, col)
+		# Left
+		_add_quad(verts, normals, uvs, colors,
+			fbl, ftl, btl, bbl, n_left, col)
+		# Right
+		_add_quad(verts, normals, uvs, colors,
+			fbr, bbr, btr, ftr, n_right, col)
 
 	if verts.is_empty():
 		return null
@@ -185,21 +189,83 @@ func _build_cylinder(points: Array) -> MeshInstance3D:
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = normals
 	arrays[Mesh.ARRAY_TEX_UV] = uvs
 	arrays[Mesh.ARRAY_COLOR]  = colors
 
 	var amesh := ArrayMesh.new()
 	amesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode               = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.cull_mode                  = BaseMaterial3D.CULL_DISABLED
-	mat.transparency               = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.vertex_color_use_as_albedo = true
-	mat.render_priority            = 1
+	var mat := _build_material(preset)
 
 	var mi              := MeshInstance3D.new()
 	mi.mesh              = amesh
 	mi.material_override = mat
 	mi.top_level         = true
 	return mi
+
+# Helper — add 1 quad với 4 corners và 1 normal
+func _add_quad(
+	verts:   PackedVector3Array,
+	normals: PackedVector3Array,
+	uvs:     PackedVector2Array,
+	colors:  PackedColorArray,
+	bl: Vector3, br: Vector3, tr: Vector3, tl: Vector3,
+	normal: Vector3,
+	col: Color
+) -> void:
+	# Triangle 1
+	verts.append(bl);  normals.append(normal); uvs.append(Vector2(0,1)); colors.append(col)
+	verts.append(br);  normals.append(normal); uvs.append(Vector2(1,1)); colors.append(col)
+	verts.append(tr);  normals.append(normal); uvs.append(Vector2(1,0)); colors.append(col)
+	# Triangle 2
+	verts.append(bl);  normals.append(normal); uvs.append(Vector2(0,1)); colors.append(col)
+	verts.append(tr);  normals.append(normal); uvs.append(Vector2(1,0)); colors.append(col)
+	verts.append(tl);  normals.append(normal); uvs.append(Vector2(0,0)); colors.append(col)
+
+func _build_material(preset: BrushPreset) -> ShaderMaterial:
+	var mat    := ShaderMaterial.new()
+	mat.shader          = _create_shader()
+	mat.render_priority = 1
+
+	if preset and preset.brush_texture != null:
+		mat.set_shader_parameter("brush_tex",     preset.brush_texture)
+		mat.set_shader_parameter("use_brush_tex", true)
+	else:
+		mat.set_shader_parameter("use_brush_tex", false)
+
+	return mat
+
+func _create_shader() -> Shader:
+	var s  := Shader.new()
+	s.code  = """
+shader_type spatial;
+render_mode unshaded, cull_disabled, blend_mix;
+
+uniform sampler2D brush_tex : filter_linear_mipmap, repeat_disable, hint_default_white;
+uniform bool use_brush_tex  = false;
+
+void fragment() {
+	// Tính góc giữa normal của mặt và hướng camera (view space)
+	// NORMAL trong view space — Z = hướng về camera
+	float facing = abs(dot(normalize(NORMAL), vec3(0.0, 0.0, 1.0)));
+
+	// Discard mặt gần vuông góc với camera (facing < threshold)
+	if (facing < 0.15) discard;
+
+	// Mờ dần khi mặt nghiêng, đậm khi nhìn thẳng
+	float face_alpha = smoothstep(0.15, 0.5, facing);
+
+	float alpha = COLOR.a * face_alpha;
+	if (use_brush_tex) {
+		vec4  brush    = texture(brush_tex, UV);
+		float lum      = dot(brush.rgb, vec3(0.299, 0.587, 0.114));
+		float darkness = 1.0 - lum;
+		alpha *= darkness * brush.a;
+	}
+
+	ALBEDO = COLOR.rgb;
+	ALPHA  = clamp(alpha, 0.0, 1.0);
+}
+"""
+	return s

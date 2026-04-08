@@ -6,6 +6,7 @@ extends Node3D
 @onready var gizmo:           Control        = $GizmoContainer
 @onready var guide_drawer:    Node           = $GuideDrawer
 @onready var plane_container: Node3D         = $DrawingWorld/PlaneContainer
+@onready var stroke_builder:  StrokeBuilder  = $StrokeBuilder  # ← attach từ scene
 
 var _preview_canvas: CanvasLayer
 var _preview_line:   Line2D
@@ -13,8 +14,7 @@ var _preview_line:   Line2D
 enum Mode { DRAW, GUIDE }
 var _mode: Mode = Mode.DRAW
 
-var _active_plane:   DrawingPlane  = null
-var _stroke_builder: StrokeBuilder = null
+var _active_plane: DrawingPlane = null
 
 const DrawingPlaneScene = preload("res://Scence/drawing3d/DrawingPlane.tscn")
 
@@ -23,9 +23,7 @@ func _ready() -> void:
 	_setup_preview_canvas()
 	guide_drawer.setup(camera, _preview_canvas)
 	guide_drawer.guide_finished.connect(_on_guide_finished)
-
-	_stroke_builder = StrokeBuilder.new()
-	add_child(_stroke_builder)
+	# Không còn tạo StrokeBuilder dynamic nữa
 
 func _setup_preview_canvas() -> void:
 	_preview_canvas             = CanvasLayer.new()
@@ -49,7 +47,7 @@ func _input(event: InputEvent) -> void:
 		if event.pressed:
 			if shift_held:
 				_mode = Mode.GUIDE
-				_stroke_builder.cancel_stroke()
+				stroke_builder.cancel_stroke()
 				guide_drawer.start_guide(event.position)
 			else:
 				_mode = Mode.DRAW
@@ -65,7 +63,7 @@ func _input(event: InputEvent) -> void:
 		if _mode == Mode.GUIDE:
 			guide_drawer.add_point(event.position)
 			_update_preview()
-		elif _mode == Mode.DRAW and _stroke_builder.is_drawing():
+		elif _mode == Mode.DRAW and stroke_builder.is_drawing():
 			_continue_stroke(event.position)
 
 # ─── Stroke flow ──────────────────────────────────────────────
@@ -74,13 +72,9 @@ func _start_stroke(screen_pos: Vector2) -> void:
 		return
 	var hit := _raycast_plane(screen_pos)
 	if hit == Vector3.INF:
-		print("no hit")
 		return
-	print("hit world: ", hit)
-	print("plane global_pos: ", _active_plane.global_position)
-	print("plane basis: ", _active_plane.global_basis)
-	_stroke_builder.setup(camera, _active_plane.stroke_container)
-	_stroke_builder.start_stroke(hit)
+	stroke_builder.setup(camera, _active_plane.stroke_container)
+	stroke_builder.start_stroke(hit)
 
 func _continue_stroke(screen_pos: Vector2) -> void:
 	if _active_plane == null:
@@ -88,12 +82,12 @@ func _continue_stroke(screen_pos: Vector2) -> void:
 	var hit := _raycast_plane(screen_pos)
 	if hit == Vector3.INF:
 		return
-	_stroke_builder.add_point(hit)
+	stroke_builder.add_point(hit)
 
 func _finish_stroke() -> void:
-	if not _stroke_builder.is_drawing():
+	if not stroke_builder.is_drawing():
 		return
-	var stroke_mesh := _stroke_builder.finish_stroke()
+	var stroke_mesh := stroke_builder.finish_stroke()
 	if stroke_mesh and _active_plane:
 		_active_plane.add_stroke(stroke_mesh)
 
@@ -158,7 +152,7 @@ func _update_preview() -> void:
 
 func _cancel_all() -> void:
 	guide_drawer.cancel()
-	_stroke_builder.cancel_stroke()
+	stroke_builder.cancel_stroke()
 	_preview_line.clear_points()
 	_mode = Mode.DRAW
 

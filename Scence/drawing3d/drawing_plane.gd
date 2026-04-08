@@ -53,7 +53,7 @@ func _build_background() -> void:
 
 func _build_collision() -> void:
 	var shape  := BoxShape3D.new()
-	shape.size  = Vector3(plane_size.x, 50.0, 0.1)
+	shape.size  = Vector3(plane_size.x, 50.0, 0.01)
 	collision_shape.shape = shape
 
 func add_stroke(stroke_mesh: MeshInstance3D) -> void:

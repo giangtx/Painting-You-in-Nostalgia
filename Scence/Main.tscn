@@ -6,7 +6,6 @@
 [ext_resource type="ArrayMesh" uid="uid://c3w1k5dgvqn45" path="res://Assets/WaterStone2.res" id="3_vm8j3"]
 [ext_resource type="ArrayMesh" uid="uid://8l5bebfjpypy" path="res://Assets/WaterStone3.res" id="4_7hm45"]
 [ext_resource type="Script" uid="uid://dx0oulytcegca" path="res://Scence/camera_3d.gd" id="5_cyolj"]
-[ext_resource type="Material" uid="uid://cvcctcqqtkrdn" path="res://Assets/stonel.tres" id="7_7hm45"]
 
 [sub_resource type="Environment" id="Environment_bo3s2"]
 background_mode = 1
@@ -32,6 +31,7 @@ colors = PackedColorArray(0.8627451, 0.8627451, 0.8627451, 1, 1, 1, 1, 1)
 
 [sub_resource type="FastNoiseLite" id="FastNoiseLite_j1svy"]
 noise_type = 2
+seed = 1
 frequency = 0.008
 fractal_octaves = 4
 fractal_gain = 0.75
@@ -196,6 +196,9 @@ shader_parameter/reflection_strength = 0.0
 [sub_resource type="PlaneMesh" id="PlaneMesh_w7l7r"]
 size = Vector2(200, 200)
 
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_vm8j3"]
+albedo_texture = SubResource("NoiseTexture2D_cyolj")
+
 [sub_resource type="BoxMesh" id="BoxMesh_vm8j3"]
 
 [node name="Main" type="Node3D" unique_id=2051628836]
@@ -255,5 +258,5 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.014359, 0, -3.1979995)
 mesh = ExtResource("4_7hm45")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=32218695]
-material_override = ExtResource("7_7hm45")
+material_override = SubResource("StandardMaterial3D_vm8j3")
 mesh = SubResource("BoxMesh_vm8j3")
