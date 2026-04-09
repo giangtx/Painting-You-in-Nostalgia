@@ -1,0 +1,262 @@
+[gd_scene format=3 uid="uid://blyvxrcuoxpe8"]
+
+[ext_resource type="Script" uid="uid://c60lt6fjaiffd" path="res://Scence/drawing3d/UI/brush_panel.gd" id="1_ttn7y"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_k12gp"]
+content_margin_left = 12.0
+content_margin_top = 12.0
+content_margin_right = 12.0
+content_margin_bottom = 12.0
+bg_color = Color(0.9607843, 0.9607843, 0.9647059, 1)
+border_width_right = 2
+border_color = Color(0.81960785, 0.81960785, 0.84705883, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_ttn7y"]
+bg_color = Color(0.25882354, 0.52156866, 0.95686275, 0.12156863)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.25882354, 0.52156866, 0.95686275, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_v83lq"]
+bg_color = Color(0.25882354, 0.52156866, 0.95686275, 0.12156863)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.25882354, 0.52156866, 0.95686275, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_5krbr"]
+bg_color = Color(0.9098039, 0.9254902, 0.98039216, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.81960785, 0.81960785, 0.84705883, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[sub_resource type="Theme" id="Theme_k12gp"]
+Button/colors/font_color = Color(0.007843138, 0.007843138, 0.011764706, 1)
+Button/colors/font_disabled_color = Color(0.007843138, 0.007843138, 0.011764706, 1)
+Button/colors/font_focus_color = Color(0.007843138, 0.007843138, 0.011764706, 1)
+Button/colors/font_hover_color = Color(0.007843138, 0.007843138, 0.011764706, 1)
+Button/colors/font_hover_pressed_color = Color(0.007843138, 0.007843138, 0.011764706, 1)
+Button/colors/font_pressed_color = Color(0.007843138, 0.007843138, 0.011764706, 1)
+Label/colors/font_color = Color(0.18039216, 0.18039216, 0.21960784, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_54aju"]
+bg_color = Color(0, 0, 0, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_b8dct"]
+bg_color = Color(1, 1, 1, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_vd3w6"]
+bg_color = Color(0.8980392, 0.101960786, 0.101960786, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_ii0ua"]
+bg_color = Color(0.101960786, 0.54901963, 0.8980392, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_3nkhc"]
+bg_color = Color(0.14901961, 0.72156864, 0.3529412, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_q38a5"]
+bg_color = Color(1, 0.7490196, 0, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_w5gym"]
+bg_color = Color(0.7019608, 0.3019608, 0.8980392, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_680cc"]
+bg_color = Color(0.9490196, 0.49803922, 0.101960786, 1)
+
+[node name="BrushPanel" type="Control" unique_id=891204932]
+custom_minimum_size = Vector2(200, 0)
+layout_mode = 3
+anchors_preset = 9
+anchor_bottom = 1.0
+grow_vertical = 2
+script = ExtResource("1_ttn7y")
+
+[node name="PanelContainer" type="PanelContainer" parent="." unique_id=578051858]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_k12gp")
+
+[node name="ScrollContainer" type="ScrollContainer" parent="PanelContainer" unique_id=1250817298]
+layout_mode = 2
+horizontal_scroll_mode = 0
+
+[node name="MainVBox" type="VBoxContainer" parent="PanelContainer/ScrollContainer" unique_id=318035535]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 0
+
+[node name="Label" type="Label" parent="PanelContainer/ScrollContainer/MainVBox" unique_id=1870671559]
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.18039216, 0.18039216, 0.21960784, 1)
+theme_override_font_sizes/font_size = 13
+text = "Brush Panel"
+vertical_alignment = 1
+
+[node name="HSeparator" type="HSeparator" parent="PanelContainer/ScrollContainer/MainVBox" unique_id=2045863564]
+layout_mode = 2
+
+[node name="SectionMode" type="VBoxContainer" parent="PanelContainer/ScrollContainer/MainVBox" unique_id=1150514801]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="PanelContainer/ScrollContainer/MainVBox/SectionMode" unique_id=1465382845]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.18039216, 0.18039216, 0.21960784, 1)
+theme_override_font_sizes/font_size = 9
+text = "Mode"
+
+[node name="HBoxContainer" type="HBoxContainer" parent="PanelContainer/ScrollContainer/MainVBox/SectionMode" unique_id=556590965]
+layout_mode = 2
+
+[node name="BtnDraw" type="Button" parent="PanelContainer/ScrollContainer/MainVBox/SectionMode/HBoxContainer" unique_id=1207148025]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.15847209, 0.15847248, 0.15847215, 1)
+theme_override_colors/font_pressed_color = Color(0.15686275, 0.15686275, 0.15686275, 1)
+theme_override_colors/font_hover_color = Color(0.15686275, 0.15686275, 0.15686275, 1)
+theme_override_colors/font_hover_pressed_color = Color(0.15686275, 0.15686275, 0.15686275, 1)
+theme_override_font_sizes/font_size = 13
+theme_override_styles/normal = SubResource("StyleBoxFlat_ttn7y")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_v83lq")
+theme_override_styles/hover = SubResource("StyleBoxFlat_5krbr")
+text = "Draw"
+
+[node name="BtnErase" type="Button" parent="PanelContainer/ScrollContainer/MainVBox/SectionMode/HBoxContainer" unique_id=1439728995]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.15847209, 0.15847248, 0.15847215, 1)
+theme_override_colors/font_pressed_color = Color(0.15686275, 0.15686275, 0.15686275, 1)
+theme_override_colors/font_hover_color = Color(0.15686275, 0.15686275, 0.15686275, 1)
+theme_override_colors/font_hover_pressed_color = Color(0.15686275, 0.15686275, 0.15686275, 1)
+theme_override_font_sizes/font_size = 13
+theme_override_styles/normal = SubResource("StyleBoxFlat_ttn7y")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_v83lq")
+theme_override_styles/hover = SubResource("StyleBoxFlat_5krbr")
+text = "Erase"
+
+[node name="Control" type="Control" parent="PanelContainer/ScrollContainer/MainVBox" unique_id=1199540446]
+custom_minimum_size = Vector2(0, 16)
+layout_mode = 2
+
+[node name="SectionBrush" type="VBoxContainer" parent="PanelContainer/ScrollContainer/MainVBox" unique_id=1532396648]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="PanelContainer/ScrollContainer/MainVBox/SectionBrush" unique_id=566658120]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.18039216, 0.18039216, 0.21960784, 1)
+theme_override_font_sizes/font_size = 9
+text = "Brush"
+
+[node name="BrushList" type="VBoxContainer" parent="PanelContainer/ScrollContainer/MainVBox/SectionBrush" unique_id=449250199]
+layout_mode = 2
+
+[node name="SectionSize" type="VBoxContainer" parent="PanelContainer/ScrollContainer/MainVBox" unique_id=1068709865]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="PanelContainer/ScrollContainer/MainVBox/SectionSize" unique_id=2039971436]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.18039216, 0.18039216, 0.21960784, 1)
+theme_override_font_sizes/font_size = 9
+text = "Size"
+
+[node name="HBoxContainer" type="HBoxContainer" parent="PanelContainer/ScrollContainer/MainVBox/SectionSize" unique_id=1810439618]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="PanelContainer/ScrollContainer/MainVBox/SectionSize/HBoxContainer" unique_id=1829046703]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.18039216, 0.18039216, 0.21960784, 1)
+theme_override_font_sizes/font_size = 9
+text = "Brush size:"
+
+[node name="SizeLabel" type="Label" parent="PanelContainer/ScrollContainer/MainVBox/SectionSize/HBoxContainer" unique_id=989758040]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.5019608, 0.5019608, 0.53333336, 1)
+theme_override_font_sizes/font_size = 9
+text = "0.080"
+
+[node name="HSlider" type="HSlider" parent="PanelContainer/ScrollContainer/MainVBox/SectionSize" unique_id=346234013]
+layout_mode = 2
+min_value = 0.01
+max_value = 1.0
+step = 0.001
+value = 0.08
+
+[node name="SectionColor" type="VBoxContainer" parent="PanelContainer/ScrollContainer/MainVBox" unique_id=2134066105]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="PanelContainer/ScrollContainer/MainVBox/SectionColor" unique_id=1925572294]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.18039216, 0.18039216, 0.21960784, 1)
+theme_override_font_sizes/font_size = 9
+text = "Color"
+
+[node name="ColorPicker" type="ColorPickerButton" parent="PanelContainer/ScrollContainer/MainVBox/SectionColor" unique_id=1184751437]
+layout_mode = 2
+text = "color"
+
+[node name="QuickPalette" type="GridContainer" parent="PanelContainer/ScrollContainer/MainVBox/SectionColor" unique_id=1922243292]
+layout_mode = 2
+theme = SubResource("Theme_k12gp")
+theme_override_constants/h_separation = 4
+theme_override_constants/v_separation = 4
+columns = 8
+
+[node name="Button" type="Button" parent="PanelContainer/ScrollContainer/MainVBox/SectionColor/QuickPalette" unique_id=248270302]
+custom_minimum_size = Vector2(18, 18)
+layout_mode = 2
+theme_override_styles/normal = SubResource("StyleBoxFlat_54aju")
+
+[node name="Button2" type="Button" parent="PanelContainer/ScrollContainer/MainVBox/SectionColor/QuickPalette" unique_id=384765230]
+custom_minimum_size = Vector2(18, 18)
+layout_mode = 2
+theme_override_styles/normal = SubResource("StyleBoxFlat_b8dct")
+
+[node name="Button3" type="Button" parent="PanelContainer/ScrollContainer/MainVBox/SectionColor/QuickPalette" unique_id=1834896259]
+custom_minimum_size = Vector2(18, 18)
+layout_mode = 2
+theme_override_styles/normal = SubResource("StyleBoxFlat_vd3w6")
+
+[node name="Button4" type="Button" parent="PanelContainer/ScrollContainer/MainVBox/SectionColor/QuickPalette" unique_id=1818506302]
+custom_minimum_size = Vector2(18, 18)
+layout_mode = 2
+theme_override_styles/normal = SubResource("StyleBoxFlat_ii0ua")
+
+[node name="Button5" type="Button" parent="PanelContainer/ScrollContainer/MainVBox/SectionColor/QuickPalette" unique_id=350709992]
+custom_minimum_size = Vector2(18, 18)
+layout_mode = 2
+theme_override_styles/normal = SubResource("StyleBoxFlat_3nkhc")
+
+[node name="Button6" type="Button" parent="PanelContainer/ScrollContainer/MainVBox/SectionColor/QuickPalette" unique_id=325667695]
+custom_minimum_size = Vector2(18, 18)
+layout_mode = 2
+theme_override_styles/normal = SubResource("StyleBoxFlat_q38a5")
+
+[node name="Button7" type="Button" parent="PanelContainer/ScrollContainer/MainVBox/SectionColor/QuickPalette" unique_id=485844779]
+custom_minimum_size = Vector2(18, 18)
+layout_mode = 2
+theme_override_styles/normal = SubResource("StyleBoxFlat_w5gym")
+
+[node name="Button8" type="Button" parent="PanelContainer/ScrollContainer/MainVBox/SectionColor/QuickPalette" unique_id=130902765]
+custom_minimum_size = Vector2(18, 18)
+layout_mode = 2
+theme_override_styles/normal = SubResource("StyleBoxFlat_680cc")

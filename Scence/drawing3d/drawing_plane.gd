@@ -11,7 +11,7 @@ extends Node3D
 
 var plane_size:    Vector2 = Vector2.ZERO
 var _display_size: Vector2 = Vector2.ZERO
-var _strokes:      Array   = []
+var _strokes:      Array   = []   # Array[StrokeBuilder.StrokeData]
 
 var has_strokes: bool:
 	get: return _strokes.size() > 0
@@ -56,11 +56,18 @@ func _build_collision() -> void:
 	shape.size  = Vector3(plane_size.x, 50.0, 0.01)
 	collision_shape.shape = shape
 
-func add_stroke(stroke_mesh: MeshInstance3D) -> void:
-	if stroke_mesh == null:
+func add_stroke(data: StrokeBuilder.StrokeData) -> void:
+	if data == null or data.mesh_inst == null:
 		return
-	stroke_container.add_child(stroke_mesh)
-	_strokes.append(stroke_mesh)
+	stroke_container.add_child(data.mesh_inst)
+	_strokes.append(data)
+
+func erase_at(world_point: Vector3, stroke_builder: StrokeBuilder) -> void:
+	var preset  := stroke_builder.get_current_preset()
+	var radius  := (preset.brush_size if preset else 0.08) * 0.5
+	stroke_builder.erase_at(world_point, _strokes, radius)
+	# Dọn stroke đã hết stamp
+	_strokes = _strokes.filter(func(d): return not d.stamp_positions.is_empty())
 
 func _build_surface_mesh(points: Array, up: Vector3, height: float) -> void:
 	var hh  := height * 0.5

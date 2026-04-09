@@ -6,12 +6,13 @@ extends Node3D
 @onready var gizmo:           Control        = $GizmoContainer
 @onready var guide_drawer:    Node           = $GuideDrawer
 @onready var plane_container: Node3D         = $DrawingWorld/PlaneContainer
-@onready var stroke_builder:  StrokeBuilder  = $StrokeBuilder  # ← attach từ scene
+@onready var stroke_builder:  StrokeBuilder  = $StrokeBuilder
+@onready var _brush_panel                    = $CanvasLayer/BrushPanel
 
 var _preview_canvas: CanvasLayer
 var _preview_line:   Line2D
 
-enum Mode { DRAW, GUIDE }
+enum Mode { DRAW, GUIDE, ERASE }
 var _mode: Mode = Mode.DRAW
 
 var _active_plane: DrawingPlane = null
@@ -23,7 +24,7 @@ func _ready() -> void:
 	_setup_preview_canvas()
 	guide_drawer.setup(camera, _preview_canvas)
 	guide_drawer.guide_finished.connect(_on_guide_finished)
-	# Không còn tạo StrokeBuilder dynamic nữa
+	_setup_brush_panel()
 
 func _setup_preview_canvas() -> void:
 	_preview_canvas             = CanvasLayer.new()
@@ -34,6 +35,15 @@ func _setup_preview_canvas() -> void:
 	_preview_line.antialiased   = true
 	_preview_canvas.add_child(_preview_line)
 
+func _setup_brush_panel() -> void:
+	var init_size := stroke_builder.get_current_preset().brush_size \
+					 if stroke_builder.get_current_preset() else 0.08
+	_brush_panel.setup(stroke_builder.brushes, stroke_builder.current_color, init_size)
+	_brush_panel.brush_changed.connect(_on_panel_brush_changed)
+	_brush_panel.brush_size_changed.connect(_on_panel_size_changed)
+	_brush_panel.color_changed.connect(_on_panel_color_changed)
+	_brush_panel.mode_changed.connect(_on_panel_mode_changed)
+
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
@@ -43,21 +53,31 @@ func _input(event: InputEvent) -> void:
 
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		var shift_held := Input.is_key_pressed(KEY_SHIFT)
+		var e_held     := Input.is_key_pressed(KEY_E)
 
 		if event.pressed:
-			if shift_held:
-				_mode = Mode.GUIDE
+			if e_held:
+				# Phím tắt: force ERASE tạm thời dù panel đang ở mode nào
+				_set_mode(Mode.ERASE)
+				stroke_builder.cancel_stroke()
+				guide_drawer.cancel()
+			elif shift_held:
+				_set_mode(Mode.GUIDE)
 				stroke_builder.cancel_stroke()
 				guide_drawer.start_guide(event.position)
+			elif _mode == Mode.ERASE:
+				# Panel đã chọn ERASE → không override về DRAW
+				pass
 			else:
-				_mode = Mode.DRAW
+				_set_mode(Mode.DRAW)
 				_start_stroke(event.position)
-		else:
+		else:  # released
 			if _mode == Mode.GUIDE:
 				guide_drawer.finish_guide()
-				_mode = Mode.DRAW
+				_set_mode(Mode.DRAW)
 			elif _mode == Mode.DRAW:
 				_finish_stroke()
+			# ERASE: không reset mode khi thả — giữ để user tiếp tục xoá
 
 	if event is InputEventMouseMotion:
 		if _mode == Mode.GUIDE:
@@ -65,6 +85,40 @@ func _input(event: InputEvent) -> void:
 			_update_preview()
 		elif _mode == Mode.DRAW and stroke_builder.is_drawing():
 			_continue_stroke(event.position)
+		elif _mode == Mode.ERASE and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+			_do_erase(event.position)
+
+# ─── Đồng bộ mode ─────────────────────────────────────────────
+func _set_mode(m: Mode) -> void:
+	_mode = m
+	if _brush_panel:
+		var panel_mode := 1 if m == Mode.ERASE else 0
+		_brush_panel.set_mode_external(panel_mode)
+
+# ─── Panel signal handlers ────────────────────────────────────
+func _on_panel_brush_changed(index: int) -> void:
+	stroke_builder.current_brush_index = index
+	# Sync size slider về đúng size của preset vừa chọn
+	var preset := stroke_builder.get_current_preset()
+	if preset:
+		_brush_panel.sync_size_to(preset.brush_size)
+
+func _on_panel_size_changed(value: float) -> void:
+	# Ghi thẳng vào preset đang active của stroke_builder — không qua index
+	var preset := stroke_builder.get_current_preset()
+	if preset:
+		preset.brush_size = value
+
+func _on_panel_color_changed(color: Color) -> void:
+	stroke_builder.current_color = color
+
+func _on_panel_mode_changed(mode_val: int) -> void:
+	if mode_val == 1:
+		_set_mode(Mode.ERASE)
+		stroke_builder.cancel_stroke()
+		guide_drawer.cancel()
+	else:
+		_set_mode(Mode.DRAW)
 
 # ─── Stroke flow ──────────────────────────────────────────────
 func _start_stroke(screen_pos: Vector2) -> void:
@@ -73,7 +127,7 @@ func _start_stroke(screen_pos: Vector2) -> void:
 	var hit := _raycast_plane(screen_pos)
 	if hit == Vector3.INF:
 		return
-	stroke_builder.setup(camera, _active_plane.stroke_container)
+	stroke_builder.setup(camera, _active_plane.stroke_container, _active_plane)
 	stroke_builder.start_stroke(hit)
 
 func _continue_stroke(screen_pos: Vector2) -> void:
@@ -87,9 +141,18 @@ func _continue_stroke(screen_pos: Vector2) -> void:
 func _finish_stroke() -> void:
 	if not stroke_builder.is_drawing():
 		return
-	var stroke_mesh := stroke_builder.finish_stroke()
-	if stroke_mesh and _active_plane:
-		_active_plane.add_stroke(stroke_mesh)
+	var data := stroke_builder.finish_stroke()
+	if data and _active_plane:
+		_active_plane.add_stroke(data)
+
+# ─── Erase ────────────────────────────────────────────────────
+func _do_erase(screen_pos: Vector2) -> void:
+	if _active_plane == null:
+		return
+	var hit := _raycast_plane(screen_pos)
+	if hit == Vector3.INF:
+		return
+	_active_plane.erase_at(hit, stroke_builder)
 
 # ─── Raycast ──────────────────────────────────────────────────
 func _raycast_plane(screen_pos: Vector2) -> Vector3:
@@ -154,7 +217,7 @@ func _cancel_all() -> void:
 	guide_drawer.cancel()
 	stroke_builder.cancel_stroke()
 	_preview_line.clear_points()
-	_mode = Mode.DRAW
+	_set_mode(Mode.DRAW)
 
 func _reset_camera() -> void:
 	camera._pivot    = Vector3.ZERO

@@ -9,6 +9,8 @@
 [ext_resource type="Script" uid="uid://dyeno4mscc7xc" path="res://Scence/drawing3d/stroke_builder.gd" id="7_y55qp"]
 [ext_resource type="Script" uid="uid://2nxeo13oc7br" path="res://Scence/drawing3d/brush_preset.gd" id="8_6krxa"]
 [ext_resource type="Texture2D" uid="uid://d23b23p7re353" path="res://Assets/BrushPng/dry-brush-stroke-18.png" id="9_diqqf"]
+[ext_resource type="PackedScene" uid="uid://blyvxrcuoxpe8" path="res://Scence/drawing3d/UI/BrushPanel.tscn" id="10_k0w1e"]
+[ext_resource type="Texture2D" uid="uid://bal3bsw7o3ddu" path="res://Assets/BrushPng/black-watercolor-brush-stroke-2-4.png" id="10_qv3s4"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_equ5b"]
 sky_horizon_color = Color(0.66224277, 0.6717428, 0.6867428, 1)
@@ -116,13 +118,16 @@ script = ExtResource("8_6krxa")
 brush_name = "Pencil"
 brush_texture = ExtResource("9_diqqf")
 brush_size = 0.2
-opacity = 0.8
 angle_jitter = 0.5
 metadata/_custom_type_script = "uid://2nxeo13oc7br"
 
 [sub_resource type="Resource" id="Resource_np5a2"]
 script = ExtResource("8_6krxa")
 brush_name = "Watercolor"
+brush_texture = ExtResource("10_qv3s4")
+brush_size = 0.2
+opacity = 0.8
+angle_jitter = 0.5
 metadata/_custom_type_script = "uid://2nxeo13oc7br"
 
 [node name="Drawing3d" type="Node3D" unique_id=1782563195]
@@ -220,3 +225,9 @@ script = ExtResource("5_df3d8")
 script = ExtResource("7_y55qp")
 brushes = Array[ExtResource("8_6krxa")]([SubResource("Resource_rcbmk"), SubResource("Resource_np5a2")])
 metadata/_custom_type_script = "uid://dyeno4mscc7xc"
+
+[node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=1165441771]
+layer = 10
+
+[node name="BrushPanel" parent="CanvasLayer" unique_id=891204932 instance=ExtResource("10_k0w1e")]
+offset_right = 200.0

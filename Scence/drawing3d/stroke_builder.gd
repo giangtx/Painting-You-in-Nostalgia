@@ -2,24 +2,62 @@
 class_name StrokeBuilder
 extends Node
 
+# ── StrokeData: lưu đủ thông tin để rebuild mesh sau khi erase ──
+class StrokeData:
+	var mesh_inst:       MeshInstance3D  = null
+	var stamp_positions: Array[Vector3]  = []
+	var rng_seed:        int             = 0
+	var preset:          BrushPreset     = null
+	var brush_size:      float           = 0.08
+	var thickness:       float           = 0.5
+	var spacing:         float           = 0.016
+	var color:           Color           = Color.BLACK
+	var plane_right:     Vector3         = Vector3.ZERO
+	var plane_up:        Vector3         = Vector3.ZERO
+	var plane_normal:    Vector3         = Vector3.ZERO
+	var render_order:    int             = 0
+
 @export var brushes:         Array[BrushPreset] = []
 var current_brush_index:     int                = 0
 var current_color:           Color              = Color.BLACK
 
 const MIN_DIST := 0.003
 
-var _points:       Array[Vector3] = []
-var _camera:       Camera3D       = null
-var _cam_forward:  Vector3        = Vector3.ZERO
-var _cam_right:    Vector3        = Vector3.ZERO
-var _cam_up:       Vector3        = Vector3.ZERO
-var _preview_inst: MeshInstance3D = null
-var _parent:       Node3D         = null
-var _rng:          RandomNumberGenerator = RandomNumberGenerator.new()
+var _stroke_counter: int = 0
 
-func setup(camera: Camera3D, parent: Node3D) -> void:
+var _points:        Array[Vector3] = []
+var _camera:        Camera3D       = null
+var _plane_normal:  Vector3        = Vector3.ZERO
+var _plane_right:   Vector3        = Vector3.ZERO
+var _plane_up:      Vector3        = Vector3.ZERO
+var _preview_inst:  MeshInstance3D = null
+var _parent:        Node3D         = null
+var _rng:           RandomNumberGenerator = RandomNumberGenerator.new()
+
+# ── Preview incremental — chỉ append, không rebuild toàn bộ ──
+var _preview_verts:   PackedVector3Array = PackedVector3Array()
+var _preview_normals: PackedVector3Array = PackedVector3Array()
+var _preview_uvs:     PackedVector2Array = PackedVector2Array()
+var _preview_colors:  PackedColorArray   = PackedColorArray()
+var _preview_stamp_positions: Array[Vector3] = []
+var _preview_accumulated: float = 0.0
+var _preview_rng:     RandomNumberGenerator = RandomNumberGenerator.new()
+var _preview_preset:  BrushPreset = null
+var _preview_size:    float = 0.08
+var _preview_thickness: float = 0.5
+var _preview_spacing: float = 0.016
+
+func setup(camera: Camera3D, parent: Node3D, plane: DrawingPlane = null) -> void:
 	_camera = camera
 	_parent = parent
+	if plane != null:
+		_plane_right  =  plane.global_basis.x
+		_plane_up     =  plane.global_basis.y
+		_plane_normal = -plane.global_basis.z
+	else:
+		_plane_right  =  camera.global_basis.x
+		_plane_up     =  camera.global_basis.y
+		_plane_normal = -camera.global_basis.z
 
 func get_current_preset() -> BrushPreset:
 	if brushes.is_empty():
@@ -29,10 +67,27 @@ func get_current_preset() -> BrushPreset:
 func start_stroke(world_point: Vector3) -> void:
 	_points.clear()
 	_points.append(world_point)
-	_cam_forward = -_camera.global_basis.z
-	_cam_right   =  _camera.global_basis.x
-	_cam_up      =  _camera.global_basis.y
 	_rng.randomize()
+
+	# Reset preview incremental state
+	_preview_verts.clear()
+	_preview_normals.clear()
+	_preview_uvs.clear()
+	_preview_colors.clear()
+	_preview_stamp_positions.clear()
+	_preview_accumulated = 0.0
+
+	_preview_preset    = get_current_preset()
+	_preview_size      = _preview_preset.brush_size      if _preview_preset else 0.08
+	_preview_thickness = _preview_preset.thickness       if _preview_preset else 0.5
+	_preview_spacing   = _preview_size * (_preview_preset.spacing_percent if _preview_preset else 0.2)
+	_preview_spacing   = maxf(_preview_spacing, MIN_DIST)
+
+	# Seed RNG preview cùng seed với stroke thật
+	_preview_rng.seed = _rng.seed
+
+	# Stamp điểm đầu tiên
+	_append_stamps_for_segment(world_point, world_point, true)
 
 	if _preview_inst != null:
 		_preview_inst.queue_free()
@@ -45,76 +100,268 @@ func add_point(world_point: Vector3) -> void:
 		return
 	if world_point.distance_to(_points.back()) < MIN_DIST:
 		return
+	var prev = _points.back()
 	_points.append(world_point)
-	_update_preview()
 
-func finish_stroke() -> MeshInstance3D:
+	# Chỉ append stamps của segment MỚI — không rebuild toàn bộ
+	_append_stamps_for_segment(prev, world_point, false)
+	_flush_preview_mesh()
+
+# Tính stamp positions cho 1 segment và append verts vào buffer
+func _append_stamps_for_segment(from: Vector3, to: Vector3, is_first: bool) -> void:
+	if is_first:
+		# Điểm đầu tiên: đặt 1 stamp tại vị trí đó
+		_preview_stamp_positions.append(from)
+		_append_stamp_verts(from, _preview_rng)
+		return
+
+	var seg_len := from.distance_to(to)
+	if seg_len < 0.0001:
+		return
+
+	_preview_accumulated += seg_len
+	while _preview_accumulated >= _preview_spacing:
+		_preview_accumulated -= _preview_spacing
+		var t   := (seg_len - _preview_accumulated) / seg_len
+		var pos := from.lerp(to, t)
+		_preview_stamp_positions.append(pos)
+		_append_stamp_verts(pos, _preview_rng)
+
+func _append_stamp_verts(pos: Vector3, rng: RandomNumberGenerator) -> void:
+	var preset    := _preview_preset
+	var size      := _preview_size
+	var thickness := _preview_thickness
+	var pr        := _plane_right
+	var pu        := _plane_up
+	var pn        := _plane_normal
+
+	var stamp_angle   := rng.randf_range(-1.0, 1.0) * (preset.angle_jitter   if preset else 0.0)
+	var stamp_scale   := 1.0 + rng.randf_range(-1.0, 1.0) * (preset.size_jitter    if preset else 0.1)
+	var stamp_opacity := clampf(
+		1.0 + rng.randf_range(-1.0, 1.0) * (preset.opacity_jitter if preset else 0.1),
+		0.0, 1.0
+	)
+	var scatter_offset := Vector3.ZERO
+	if preset and preset.scatter > 0.0:
+		scatter_offset = (
+			pr * rng.randf_range(-1.0, 1.0) +
+			pu * rng.randf_range(-1.0, 1.0)
+		) * preset.scatter * size
+
+	var half_w := size * stamp_scale * 0.5
+	var half_d := half_w * thickness
+	var center := pos + scatter_offset
+
+	var cos_a := cos(stamp_angle)
+	var sin_a := sin(stamp_angle)
+	var r     := (pr * cos_a + pu * sin_a).normalized()
+	var u     := (pr * (-sin_a) + pu * cos_a).normalized()
+	var fwd   := pn
+
+	var col := Color(
+		current_color.r, current_color.g, current_color.b,
+		current_color.a * (preset.opacity if preset else 1.0) * stamp_opacity
+	)
+
+	var ftl := center + u * half_w - r * half_w + fwd * half_d
+	var ftr := center + u * half_w + r * half_w + fwd * half_d
+	var fbl := center - u * half_w - r * half_w + fwd * half_d
+	var fbr := center - u * half_w + r * half_w + fwd * half_d
+	var btl := center + u * half_w - r * half_w - fwd * half_d
+	var btr := center + u * half_w + r * half_w - fwd * half_d
+	var bbl := center - u * half_w - r * half_w - fwd * half_d
+	var bbr := center - u * half_w + r * half_w - fwd * half_d
+
+	var n_front := fwd;  var n_back   := -fwd
+	var n_top   := u;    var n_bottom := -u
+	var n_left  := -r;   var n_right2 :=  r
+
+	_add_quad(_preview_verts, _preview_normals, _preview_uvs, _preview_colors, fbl, fbr, ftr, ftl, n_front,  col)
+	_add_quad(_preview_verts, _preview_normals, _preview_uvs, _preview_colors, bbr, bbl, btl, btr, n_back,   col)
+	_add_quad(_preview_verts, _preview_normals, _preview_uvs, _preview_colors, ftl, ftr, btr, btl, n_top,    col)
+	_add_quad(_preview_verts, _preview_normals, _preview_uvs, _preview_colors, fbr, fbl, bbl, bbr, n_bottom, col)
+	_add_quad(_preview_verts, _preview_normals, _preview_uvs, _preview_colors, fbl, ftl, btl, bbl, n_left,   col)
+	_add_quad(_preview_verts, _preview_normals, _preview_uvs, _preview_colors, fbr, bbr, btr, ftr, n_right2, col)
+
+# Upload buffer lên GPU — chỉ gọi khi có stamp mới
+func _flush_preview_mesh() -> void:
+	if _preview_inst == null or _preview_verts.is_empty():
+		return
+
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = _preview_verts
+	arrays[Mesh.ARRAY_NORMAL] = _preview_normals
+	arrays[Mesh.ARRAY_TEX_UV] = _preview_uvs
+	arrays[Mesh.ARRAY_COLOR]  = _preview_colors
+
+	var amesh := ArrayMesh.new()
+	amesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+
+	var mat := _build_material(_preview_preset)
+	# Preview luôn render trên tất cả stroke đã bake
+	mat.render_priority = _stroke_counter + 1
+
+	_preview_inst.mesh              = amesh
+	_preview_inst.material_override = mat
+
+func finish_stroke() -> StrokeData:
 	if _points.size() < 2:
 		if _preview_inst:
 			_preview_inst.queue_free()
 			_preview_inst = null
 		_points.clear()
+		_preview_stamp_positions.clear()
 		return null
-	var baked := _build_stamp_mesh(_points)
+
+	# Dùng lại stamp positions đã tính trong preview — không tính lại
+	var stamp_positions: Array[Vector3] = []
+	stamp_positions.assign(_preview_stamp_positions)
+
+	var mi := _bake_mesh_from_buffers()
+	if mi == null:
+		_preview_inst.queue_free() if _preview_inst else null
+		_preview_inst = null
+		_points.clear()
+		_preview_stamp_positions.clear()
+		return null
+
 	if _preview_inst:
 		_preview_inst.queue_free()
 		_preview_inst = null
+
+	_stroke_counter += 1
+	if mi.material_override:
+		mi.material_override.render_priority = _stroke_counter
+
+	var data              := StrokeData.new()
+	data.mesh_inst         = mi
+	data.stamp_positions   = stamp_positions
+	data.rng_seed          = _rng.seed
+	data.preset            = _preview_preset
+	data.brush_size        = _preview_size
+	data.thickness         = _preview_thickness
+	data.spacing           = _preview_spacing
+	data.color             = current_color
+	data.plane_right       = _plane_right
+	data.plane_up          = _plane_up
+	data.plane_normal      = _plane_normal
+	data.render_order      = _stroke_counter
+
 	_points.clear()
-	return baked
+	_preview_stamp_positions.clear()
+	_preview_verts.clear()
+	_preview_normals.clear()
+	_preview_uvs.clear()
+	_preview_colors.clear()
+	return data
+
+# Đúc mesh cuối từ buffer đã build incremental
+func _bake_mesh_from_buffers() -> MeshInstance3D:
+	if _preview_verts.is_empty():
+		return null
+
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = _preview_verts
+	arrays[Mesh.ARRAY_NORMAL] = _preview_normals
+	arrays[Mesh.ARRAY_TEX_UV] = _preview_uvs
+	arrays[Mesh.ARRAY_COLOR]  = _preview_colors
+
+	var amesh := ArrayMesh.new()
+	amesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+
+	var mi              := MeshInstance3D.new()
+	mi.mesh              = amesh
+	mi.material_override = _build_material(_preview_preset)
+	mi.top_level         = true
+	return mi
 
 func cancel_stroke() -> void:
 	if _preview_inst:
 		_preview_inst.queue_free()
 		_preview_inst = null
 	_points.clear()
+	_preview_stamp_positions.clear()
+	_preview_verts.clear()
+	_preview_normals.clear()
+	_preview_uvs.clear()
+	_preview_colors.clear()
 
 func is_drawing() -> bool:
 	return not _points.is_empty()
 
-func _update_preview() -> void:
-	if _preview_inst == null or _points.size() < 2:
-		return
-	var built := _build_stamp_mesh(_points)
-	if built:
-		_preview_inst.mesh              = built.mesh
-		_preview_inst.material_override = built.material_override
-		built.queue_free()
+# ── Eraser ────────────────────────────────────────────────────
+func erase_at(world_point: Vector3, strokes: Array, radius: float) -> void:
+	for data in strokes:
+		var data_typed := data as StrokeData
+		if data_typed == null or data_typed.stamp_positions.is_empty():
+			continue
 
-func _build_stamp_mesh(points: Array) -> MeshInstance3D:
-	if points.size() < 2:
-		return null
+		var before_count := data_typed.stamp_positions.size()
 
-	var preset    := get_current_preset()
-	var size      := preset.brush_size      if preset else 0.08
-	var thickness := preset.thickness       if preset else 0.5
-	var spacing   := size * (preset.spacing_percent if preset else 0.2)
-	spacing        = maxf(spacing, MIN_DIST)
+		var kept: Array[Vector3] = []
+		for sp in data_typed.stamp_positions:
+			if sp.distance_to(world_point) > radius:
+				kept.append(sp)
 
-	# ── Tính stamp positions dọc theo path ───────────────────
-	var stamp_positions : Array[Vector3] = []
-	stamp_positions.append(points[0])
-	var accumulated := 0.0
+		if kept.size() == before_count:
+			continue
 
-	for i in range(1, points.size()):
-		var seg_len = points[i].distance_to(points[i-1])
-		accumulated  += seg_len
-		while accumulated >= spacing:
-			accumulated -= spacing
-			var t   = (seg_len - accumulated) / seg_len
-			var pos = points[i-1].lerp(points[i], t)
-			stamp_positions.append(pos)
+		data_typed.stamp_positions = kept
 
+		if data_typed.mesh_inst:
+			data_typed.mesh_inst.queue_free()
+			data_typed.mesh_inst = null
+
+		if kept.size() >= 1:
+			var mi := _build_mesh_from_stamps(
+				kept,
+				data_typed.preset,
+				data_typed.rng_seed,
+				data_typed.plane_right,
+				data_typed.plane_up,
+				data_typed.plane_normal,
+				data_typed.color,
+				data_typed.brush_size,
+				data_typed.thickness
+			)
+			if mi:
+				if mi.material_override:
+					mi.material_override.render_priority = data_typed.render_order
+				data_typed.mesh_inst = mi
+				_parent.add_child(mi)
+
+# ── Build mesh từ stamp positions (dùng cho erase rebuild) ───
+func _build_mesh_from_stamps(
+	stamp_positions: Array,
+	preset:          BrushPreset,
+	rng_seed:        int,
+	p_right:         Vector3 = Vector3.ZERO,
+	p_up:            Vector3 = Vector3.ZERO,
+	p_normal:        Vector3 = Vector3.ZERO,
+	col_override:    Color   = Color(-1, 0, 0),
+	size_override:   float   = -1.0,
+	thick_override:  float   = -1.0
+) -> MeshInstance3D:
 	if stamp_positions.is_empty():
 		return null
 
-	# ── Build box stamps ──────────────────────────────────────
+	var pr := p_right  if p_right  != Vector3.ZERO else _plane_right
+	var pu := p_up     if p_up     != Vector3.ZERO else _plane_up
+	var pn := p_normal if p_normal != Vector3.ZERO else _plane_normal
+	var base_color := col_override if col_override.r >= 0.0 else current_color
+
+	var size      := size_override  if size_override  >= 0.0 else (preset.brush_size if preset else 0.08)
+	var thickness := thick_override if thick_override >= 0.0 else (preset.thickness  if preset else 0.5)
+
 	var verts   := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var uvs     := PackedVector2Array()
 	var colors  := PackedColorArray()
 
 	var rng := RandomNumberGenerator.new()
-	rng.seed = _rng.seed
+	rng.seed = rng_seed
 
 	for pos in stamp_positions:
 		var stamp_angle   := rng.randf_range(-1.0, 1.0) * (preset.angle_jitter   if preset else 0.0)
@@ -126,62 +373,44 @@ func _build_stamp_mesh(points: Array) -> MeshInstance3D:
 		var scatter_offset := Vector3.ZERO
 		if preset and preset.scatter > 0.0:
 			scatter_offset = (
-				_cam_right * rng.randf_range(-1.0, 1.0) +
-				_cam_up    * rng.randf_range(-1.0, 1.0)
+				pr * rng.randf_range(-1.0, 1.0) +
+				pu * rng.randf_range(-1.0, 1.0)
 			) * preset.scatter * size
 
 		var half_w := size * stamp_scale * 0.5
 		var half_d := half_w * thickness
-		var center := pos + scatter_offset
+		var center = pos + scatter_offset
 
 		var cos_a := cos(stamp_angle)
 		var sin_a := sin(stamp_angle)
-		var r     := (_cam_right * cos_a + _cam_up * sin_a).normalized()
-		var u     := (_cam_right * (-sin_a) + _cam_up * cos_a).normalized()
-		var fwd   := _cam_forward
+		var r     := (pr * cos_a + pu * sin_a).normalized()
+		var u     := (pr * (-sin_a) + pu * cos_a).normalized()
+		var fwd   := pn
 
 		var col := Color(
-			current_color.r, current_color.g, current_color.b,
-			current_color.a * (preset.opacity if preset else 1.0) * stamp_opacity
+			base_color.r, base_color.g, base_color.b,
+			base_color.a * (preset.opacity if preset else 1.0) * stamp_opacity
 		)
 
-		# 8 corners
-		var ftl := center + u * half_w - r * half_w + fwd * half_d
-		var ftr := center + u * half_w + r * half_w + fwd * half_d
-		var fbl := center - u * half_w - r * half_w + fwd * half_d
-		var fbr := center - u * half_w + r * half_w + fwd * half_d
-		var btl := center + u * half_w - r * half_w - fwd * half_d
-		var btr := center + u * half_w + r * half_w - fwd * half_d
-		var bbl := center - u * half_w - r * half_w - fwd * half_d
-		var bbr := center - u * half_w + r * half_w - fwd * half_d
+		var ftl = center + u * half_w - r * half_w + fwd * half_d
+		var ftr = center + u * half_w + r * half_w + fwd * half_d
+		var fbl = center - u * half_w - r * half_w + fwd * half_d
+		var fbr = center - u * half_w + r * half_w + fwd * half_d
+		var btl = center + u * half_w - r * half_w - fwd * half_d
+		var btr = center + u * half_w + r * half_w - fwd * half_d
+		var bbl = center - u * half_w - r * half_w - fwd * half_d
+		var bbr = center - u * half_w + r * half_w - fwd * half_d
 
-		# Normal của từng mặt (world space)
-		var n_front  :=  fwd
-		var n_back   := -fwd
-		var n_top    :=  u
-		var n_bottom := -u
-		var n_left   := -r
-		var n_right  :=  r
+		var n_front := fwd;  var n_back   := -fwd
+		var n_top   := u;    var n_bottom := -u
+		var n_left  := -r;   var n_right2 :=  r
 
-		# Helper để add 1 quad (2 triangles) với normal cố định
-		# Front
-		_add_quad(verts, normals, uvs, colors,
-			fbl, fbr, ftr, ftl, n_front, col)
-		# Back
-		_add_quad(verts, normals, uvs, colors,
-			bbr, bbl, btl, btr, n_back, col)
-		# Top
-		_add_quad(verts, normals, uvs, colors,
-			ftl, ftr, btr, btl, n_top, col)
-		# Bottom
-		_add_quad(verts, normals, uvs, colors,
-			fbr, fbl, bbl, bbr, n_bottom, col)
-		# Left
-		_add_quad(verts, normals, uvs, colors,
-			fbl, ftl, btl, bbl, n_left, col)
-		# Right
-		_add_quad(verts, normals, uvs, colors,
-			fbr, bbr, btr, ftr, n_right, col)
+		_add_quad(verts, normals, uvs, colors, fbl, fbr, ftr, ftl, n_front,  col)
+		_add_quad(verts, normals, uvs, colors, bbr, bbl, btl, btr, n_back,   col)
+		_add_quad(verts, normals, uvs, colors, ftl, ftr, btr, btl, n_top,    col)
+		_add_quad(verts, normals, uvs, colors, fbr, fbl, bbl, bbr, n_bottom, col)
+		_add_quad(verts, normals, uvs, colors, fbl, ftl, btl, bbl, n_left,   col)
+		_add_quad(verts, normals, uvs, colors, fbr, bbr, btr, ftr, n_right2, col)
 
 	if verts.is_empty():
 		return null
@@ -196,37 +425,31 @@ func _build_stamp_mesh(points: Array) -> MeshInstance3D:
 	var amesh := ArrayMesh.new()
 	amesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 
-	var mat := _build_material(preset)
-
 	var mi              := MeshInstance3D.new()
 	mi.mesh              = amesh
-	mi.material_override = mat
+	mi.material_override = _build_material(preset)
 	mi.top_level         = true
 	return mi
 
-# Helper — add 1 quad với 4 corners và 1 normal
+# Helper — add 1 quad
 func _add_quad(
 	verts:   PackedVector3Array,
 	normals: PackedVector3Array,
 	uvs:     PackedVector2Array,
 	colors:  PackedColorArray,
 	bl: Vector3, br: Vector3, tr: Vector3, tl: Vector3,
-	normal: Vector3,
-	col: Color
+	normal: Vector3, col: Color
 ) -> void:
-	# Triangle 1
 	verts.append(bl);  normals.append(normal); uvs.append(Vector2(0,1)); colors.append(col)
 	verts.append(br);  normals.append(normal); uvs.append(Vector2(1,1)); colors.append(col)
 	verts.append(tr);  normals.append(normal); uvs.append(Vector2(1,0)); colors.append(col)
-	# Triangle 2
 	verts.append(bl);  normals.append(normal); uvs.append(Vector2(0,1)); colors.append(col)
 	verts.append(tr);  normals.append(normal); uvs.append(Vector2(1,0)); colors.append(col)
 	verts.append(tl);  normals.append(normal); uvs.append(Vector2(0,0)); colors.append(col)
 
 func _build_material(preset: BrushPreset) -> ShaderMaterial:
-	var mat    := ShaderMaterial.new()
-	mat.shader          = _create_shader()
-	mat.render_priority = 1
+	var mat   := ShaderMaterial.new()
+	mat.shader = _create_shader()
 
 	if preset and preset.brush_texture != null:
 		mat.set_shader_parameter("brush_tex",     preset.brush_texture)
@@ -246,6 +469,13 @@ uniform sampler2D brush_tex : filter_linear_mipmap, repeat_disable, hint_default
 uniform bool use_brush_tex  = false;
 
 void fragment() {
+	vec3 c = COLOR.rgb;
+	vec3 linear_color = mix(
+		c / 12.92,
+		pow((c + 0.055) / 1.055, vec3(2.4)),
+		step(0.04045, c)
+	);
+
 	// Tính góc giữa normal của mặt và hướng camera (view space)
 	// NORMAL trong view space — Z = hướng về camera
 	float facing = abs(dot(normalize(NORMAL), vec3(0.0, 0.0, 1.0)));
@@ -264,7 +494,7 @@ void fragment() {
 		alpha *= darkness * brush.a;
 	}
 
-	ALBEDO = COLOR.rgb;
+	ALBEDO = linear_color;
 	ALPHA  = clamp(alpha, 0.0, 1.0);
 }
 """
