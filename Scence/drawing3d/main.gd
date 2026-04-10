@@ -15,7 +15,9 @@ var _preview_line:   Line2D
 enum Mode { DRAW, GUIDE, ERASE }
 var _mode: Mode = Mode.DRAW
 
-var _active_plane: DrawingPlane = null
+var _active_plane:   DrawingPlane = null
+var _hovered_plane:  DrawingPlane = null  # plane đang highlight bởi Ctrl+hover
+var _last_mouse_pos: Vector2      = Vector2.ZERO
 
 const DrawingPlaneScene = preload("res://Scence/drawing3d/DrawingPlane.tscn")
 
@@ -25,6 +27,14 @@ func _ready() -> void:
 	guide_drawer.setup(camera, _preview_canvas)
 	guide_drawer.guide_finished.connect(_on_guide_finished)
 	_setup_brush_panel()
+
+# Ctrl+hover cần chạy mỗi frame — kể cả khi chuột đứng yên
+# (vd: user bấm Ctrl sau khi dừng di chuột)
+func _process(_delta: float) -> void:
+	if Input.is_key_pressed(KEY_CTRL):
+		_update_hover_highlight(_last_mouse_pos)
+	else:
+		_clear_hover_highlight()
 
 func _setup_preview_canvas() -> void:
 	_preview_canvas             = CanvasLayer.new()
@@ -55,11 +65,17 @@ func _input(event: InputEvent) -> void:
 
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		var shift_held := Input.is_key_pressed(KEY_SHIFT)
+		var ctrl_held  := Input.is_key_pressed(KEY_CTRL)
 		var e_held     := Input.is_key_pressed(KEY_E)
 
 		if event.pressed:
+			# ─── Ctrl+click → switch active plane ───────────────────
+			if ctrl_held:
+				if _hovered_plane != null:
+					_switch_active_plane(_hovered_plane)
+				return
+
 			if e_held:
-				# Phím tắt: force ERASE tạm thời dù panel đang ở mode nào
 				_set_mode(Mode.ERASE)
 				stroke_builder.cancel_stroke()
 				guide_drawer.cancel()
@@ -68,7 +84,6 @@ func _input(event: InputEvent) -> void:
 				stroke_builder.cancel_stroke()
 				guide_drawer.start_guide(event.position)
 			elif _mode == Mode.ERASE:
-				# Panel đã chọn ERASE → không override về DRAW
 				pass
 			else:
 				_set_mode(Mode.DRAW)
@@ -79,9 +94,10 @@ func _input(event: InputEvent) -> void:
 				_set_mode(Mode.DRAW)
 			elif _mode == Mode.DRAW:
 				_finish_stroke()
-			# ERASE: không reset mode khi thả — giữ để user tiếp tục xoá
 
 	if event is InputEventMouseMotion:
+		_last_mouse_pos = event.position  # luôn cập nhật để _process dùng
+
 		if _mode == Mode.GUIDE:
 			guide_drawer.add_point(event.position)
 			_update_preview()
@@ -100,7 +116,6 @@ func _set_mode(m: Mode) -> void:
 # ─── Panel signal handlers ────────────────────────────────────
 func _on_panel_brush_changed(index: int) -> void:
 	stroke_builder.current_brush_index = index
-	# Sync size slider về đúng size của preset vừa chọn
 	var preset := stroke_builder.get_current_preset()
 	if preset:
 		_brush_panel.sync_size_to(preset.brush_size)
@@ -108,7 +123,6 @@ func _on_panel_brush_changed(index: int) -> void:
 		_brush_panel.sync_thickness_to(preset.thickness)
 
 func _on_panel_size_changed(value: float) -> void:
-	# Ghi thẳng vào preset đang active của stroke_builder — không qua index
 	var preset := stroke_builder.get_current_preset()
 	if preset:
 		preset.brush_size = value
@@ -123,6 +137,7 @@ func _on_panel_mode_changed(mode_val: int) -> void:
 		guide_drawer.cancel()
 	else:
 		_set_mode(Mode.DRAW)
+
 func _on_panel_opacity_changed(value: float) -> void:
 	var preset := stroke_builder.get_current_preset()
 	if preset:
@@ -137,19 +152,19 @@ func _on_panel_thickness_changed(value: float) -> void:
 func _start_stroke(screen_pos: Vector2) -> void:
 	if _active_plane == null:
 		return
-	var hit := _raycast_plane(screen_pos)
-	if hit == Vector3.INF:
+	var hit_data := _raycast_plane(screen_pos)
+	if hit_data.is_empty():
 		return
 	stroke_builder.setup(camera, _active_plane.stroke_container, _active_plane)
-	stroke_builder.start_stroke(hit)
+	stroke_builder.start_stroke(hit_data["position"], hit_data["normal"])
 
 func _continue_stroke(screen_pos: Vector2) -> void:
 	if _active_plane == null:
 		return
-	var hit := _raycast_plane(screen_pos)
-	if hit == Vector3.INF:
+	var hit_data := _raycast_plane(screen_pos)
+	if hit_data.is_empty():
 		return
-	stroke_builder.add_point(hit)
+	stroke_builder.add_point(hit_data["position"], hit_data["normal"])
 
 func _finish_stroke() -> void:
 	if not stroke_builder.is_drawing():
@@ -162,13 +177,13 @@ func _finish_stroke() -> void:
 func _do_erase(screen_pos: Vector2) -> void:
 	if _active_plane == null:
 		return
-	var hit := _raycast_plane(screen_pos)
-	if hit == Vector3.INF:
+	var hit_data := _raycast_plane(screen_pos)
+	if hit_data.is_empty():
 		return
-	_active_plane.erase_at(hit, stroke_builder)
+	_active_plane.erase_at(hit_data["position"], stroke_builder)
 
-# ─── Raycast ──────────────────────────────────────────────────
-func _raycast_plane(screen_pos: Vector2) -> Vector3:
+# ─── Raycast chỉ vào active plane (dùng khi vẽ/erase) ────────
+func _raycast_plane(screen_pos: Vector2) -> Dictionary:
 	var space  := get_world_3d().direct_space_state
 	var origin := camera.project_ray_origin(screen_pos)
 	var dir    := camera.project_ray_normal(screen_pos)
@@ -179,21 +194,90 @@ func _raycast_plane(screen_pos: Vector2) -> Vector3:
 
 	var result := space.intersect_ray(query)
 	if result.is_empty():
-		return Vector3.INF
+		return {}
 
 	var hit_body := result["collider"] as StaticBody3D
 	if hit_body == null:
-		return Vector3.INF
+		return {}
 
 	var hit_plane := hit_body.get_parent() as DrawingPlane
 	if hit_plane == null or hit_plane != _active_plane:
-		return Vector3.INF
+		return {}
 
-	return result["position"]
+	return {
+		"position": result["position"],
+		"normal":   result["normal"],
+	}
+
+# ─── Raycast bất kỳ plane nào (trừ excluded) ──────────────────
+func _raycast_any_plane(screen_pos: Vector2, excluded: DrawingPlane) -> DrawingPlane:
+	var space  := get_world_3d().direct_space_state
+	var origin := camera.project_ray_origin(screen_pos)
+	var dir    := camera.project_ray_normal(screen_pos)
+	var query  := PhysicsRayQueryParameters3D.create(origin, origin + dir * 1000.0)
+	query.collision_mask  = 0xFFFFFFFF
+	query.hit_back_faces  = true
+	query.hit_from_inside = true
+
+	# Exclude active plane bằng RID để raycast xuyên qua nó tìm plane phía sau
+	var exclude_rids: Array[RID] = []
+	if excluded != null:
+		var body := excluded.get_node_or_null("Body") as StaticBody3D
+		if body:
+			exclude_rids.append(body.get_rid())
+	query.exclude = exclude_rids
+
+	var result := space.intersect_ray(query)
+	if result.is_empty():
+		return null
+
+	var hit_body := result["collider"] as StaticBody3D
+	if hit_body == null:
+		return null
+
+	# Chỉ trả về nếu hit DrawingPlane — bỏ qua object khác trong scene
+	return hit_body.get_parent() as DrawingPlane
+
+# ─── Ctrl hover highlight ─────────────────────────────────────
+func _update_hover_highlight(screen_pos: Vector2) -> void:
+	var hit_plane := _raycast_any_plane(screen_pos, _active_plane)
+
+	if hit_plane == _hovered_plane:
+		return  # không đổi gì
+
+	_clear_hover_highlight()
+
+	if hit_plane != null:
+		_hovered_plane = hit_plane
+		_hovered_plane.set_highlighted(true)
+
+func _clear_hover_highlight() -> void:
+	if _hovered_plane != null:
+		_hovered_plane.set_highlighted(false)
+		_hovered_plane = null
+
+# ─── Switch active plane ──────────────────────────────────────
+func _switch_active_plane(new_plane: DrawingPlane) -> void:
+	if new_plane == _active_plane:
+		return
+
+	_clear_hover_highlight()
+
+	if _active_plane != null:
+		_active_plane.hide_grid()
+		_active_plane.set_active(false)
+		_active_plane = null
+
+	_active_plane = new_plane
+	_active_plane.set_active(true)
+
+	await get_tree().physics_frame
+	await get_tree().physics_frame
 
 # ─── Guide finished ───────────────────────────────────────────
 func _on_guide_finished(points_3d: Array) -> void:
 	_preview_line.clear_points()
+	_clear_hover_highlight()
 
 	var data := SurfaceGenerator.compute(points_3d, camera)
 	if data.is_empty():
@@ -230,6 +314,7 @@ func _cancel_all() -> void:
 	guide_drawer.cancel()
 	stroke_builder.cancel_stroke()
 	_preview_line.clear_points()
+	_clear_hover_highlight()
 	_set_mode(Mode.DRAW)
 
 func _reset_camera() -> void:
