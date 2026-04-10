@@ -29,9 +29,14 @@ const RING_RADIUS_RATIO := 0.22   # bán kính ring
 # Đây là ngưỡng PIXEL — không phụ thuộc khoảng cách → luôn dễ click
 const ARROW_HIT_PX  := 12.0   # pixel tolerance cho arrow
 const RING_HIT_PX   := 14.0   # pixel tolerance cho ring
+const PLANE_HIT_PX  := 14.0   # pixel tolerance cho plane square
+const PLANE_SIZE_RATIO := 0.055  # kích thước hình vuông
+const PLANE_OFFSET_RATIO := 0.09 # offset từ gốc ra mặt phẳng
 
 # ─── Enum handle ─────────────────────────────────────────────
-enum HandleType { NONE, TRANS_X, TRANS_Y, TRANS_Z, ROT_X, ROT_Y, ROT_Z }
+enum HandleType { NONE, TRANS_X, TRANS_Y, TRANS_Z,
+				  TRANS_XY, TRANS_XZ, TRANS_YZ,
+				  ROT_X, ROT_Y, ROT_Z }
 
 # ─── State ───────────────────────────────────────────────────
 var _hovered_handle:   HandleType = HandleType.NONE
@@ -48,9 +53,9 @@ var _drag_accumulated_angle: float = 0.0          # [NEW] tổng góc xoay từ 
 var _gizmo_scale: float = 1.0
 
 # ─── Mesh instances ───────────────────────────────────────────
-# Mỗi mesh dùng ImmediateMesh để redraw màu/kích thước mỗi frame
 var _arrow_meshes: Array[MeshInstance3D] = []   # 3 arrows X/Y/Z
 var _ring_meshes:  Array[MeshInstance3D] = []   # 3 rings X/Y/Z
+var _plane_meshes: Array[MeshInstance3D] = []   # 3 plane squares XY/XZ/YZ
 
 # ─── Setup / Attach / Detach ─────────────────────────────────
 func setup(camera: Camera3D) -> void:
@@ -74,8 +79,10 @@ func detach() -> void:
 func _build_meshes() -> void:
 	for m in _arrow_meshes: m.queue_free()
 	for m in _ring_meshes:  m.queue_free()
+	for m in _plane_meshes: m.queue_free()
 	_arrow_meshes.clear()
 	_ring_meshes.clear()
+	_plane_meshes.clear()
 
 	for i in 3:
 		var mat := _make_mat()
@@ -92,6 +99,14 @@ func _build_meshes() -> void:
 		mi.material_override = mat
 		add_child(mi)
 		_ring_meshes.append(mi)
+
+	for i in 3:
+		var mat := _make_mat()
+		var mi  := MeshInstance3D.new()
+		mi.mesh              = ImmediateMesh.new()
+		mi.material_override = mat
+		add_child(mi)
+		_plane_meshes.append(mi)
 
 func _make_mat() -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
@@ -125,6 +140,14 @@ func _redraw_all() -> void:
 	var base_colors  := [C_X, C_Y, C_Z]
 	var trans_types  := [HandleType.TRANS_X, HandleType.TRANS_Y, HandleType.TRANS_Z]
 	var rot_types    := [HandleType.ROT_X,   HandleType.ROT_Y,   HandleType.ROT_Z  ]
+	# Plane squares: XY (normal Z), XZ (normal Y), YZ (normal X)
+	# dir_a, dir_b = 2 trục của mặt phẳng; color = mix 2 màu
+	var plane_types  := [HandleType.TRANS_XY, HandleType.TRANS_XZ, HandleType.TRANS_YZ]
+	var plane_dir_a  := [Vector3.RIGHT, Vector3.RIGHT, Vector3.UP  ]
+	var plane_dir_b  := [Vector3.UP,    Vector3.BACK,  Vector3.BACK ]
+	var plane_colors := [Color(C_X.r, C_X.r * 0.3 + C_Y.r * 0.7, C_Y.b, 0.5),
+						 Color(C_X.r, C_X.g * 0.3 + C_Z.g * 0.7, C_Z.b, 0.5),
+						 Color(C_Y.r * 0.3 + C_Z.r * 0.7, C_Y.g, C_Z.b, 0.5)]
 
 	for i in 3:
 		var col := _resolve_color(trans_types[i], base_colors[i])
@@ -133,6 +156,50 @@ func _redraw_all() -> void:
 	for i in 3:
 		var col := _resolve_color(rot_types[i], base_colors[i])
 		_draw_ring(_ring_meshes[i].mesh as ImmediateMesh, ring_normals[i], col)
+
+	for i in 3:
+		var col := _resolve_color(plane_types[i], plane_colors[i])
+		_draw_plane_square(_plane_meshes[i].mesh as ImmediateMesh,
+						   plane_dir_a[i], plane_dir_b[i], col)
+
+func _draw_plane_square(im: ImmediateMesh, dir_a: Vector3, dir_b: Vector3, col: Color) -> void:
+	im.clear_surfaces()
+	var s   := PLANE_SIZE_RATIO   * _gizmo_scale  # kích thước cạnh
+	var off := PLANE_OFFSET_RATIO * _gizmo_scale  # offset từ gốc
+
+	# Center của hình vuông nằm trên đường phân giác của 2 trục
+	var center := (dir_a + dir_b).normalized() * off * 1.2
+
+	# 4 góc của hình vuông trong mặt phẳng dir_a/dir_b
+	var hs := s * 0.5
+	var c0 := center - dir_a * hs - dir_b * hs
+	var c1 := center + dir_a * hs - dir_b * hs
+	var c2 := center + dir_a * hs + dir_b * hs
+	var c3 := center - dir_a * hs + dir_b * hs
+
+	# Vẽ filled quad bằng TRIANGLES + outline bằng LINES
+	# Filled (dùng color với alpha thấp hơn để trong suốt một chút)
+	var fill_col := Color(col.r, col.g, col.b, col.a * 0.4)
+	im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	im.surface_set_color(fill_col); im.surface_add_vertex(c0)
+	im.surface_set_color(fill_col); im.surface_add_vertex(c1)
+	im.surface_set_color(fill_col); im.surface_add_vertex(c2)
+	im.surface_set_color(fill_col); im.surface_add_vertex(c0)
+	im.surface_set_color(fill_col); im.surface_add_vertex(c2)
+	im.surface_set_color(fill_col); im.surface_add_vertex(c3)
+	im.surface_end()
+
+	# Outline
+	im.surface_begin(Mesh.PRIMITIVE_LINES)
+	im.surface_set_color(col); im.surface_add_vertex(c0)
+	im.surface_set_color(col); im.surface_add_vertex(c1)
+	im.surface_set_color(col); im.surface_add_vertex(c1)
+	im.surface_set_color(col); im.surface_add_vertex(c2)
+	im.surface_set_color(col); im.surface_add_vertex(c2)
+	im.surface_set_color(col); im.surface_add_vertex(c3)
+	im.surface_set_color(col); im.surface_add_vertex(c3)
+	im.surface_set_color(col); im.surface_add_vertex(c0)
+	im.surface_end()
 
 func _resolve_color(handle: HandleType, base: Color) -> Color:
 	if handle == _active_handle:
@@ -254,7 +321,37 @@ func get_handle_at(screen_pos: Vector2) -> HandleType:
 			best_dist = min_d
 			best      = ring_types[i]
 
+	# Plane square hit test — point-in-quad 2D
+	var plane_types := [HandleType.TRANS_XY, HandleType.TRANS_XZ, HandleType.TRANS_YZ]
+	var plane_dir_a := [global_basis.x, global_basis.x, global_basis.y]
+	var plane_dir_b := [global_basis.y, global_basis.z, global_basis.z]
+	var sq          := PLANE_SIZE_RATIO   * _gizmo_scale
+	var sq_off      := PLANE_OFFSET_RATIO * _gizmo_scale
+	for i in 3:
+		var da     = plane_dir_a[i]
+		var db     = plane_dir_b[i]
+		var center = origin + (da + db).normalized() * sq_off * 1.2
+		var hs     := sq * 0.5
+		var sc0    := _camera.unproject_position(center - da * hs - db * hs)
+		var sc1    := _camera.unproject_position(center + da * hs - db * hs)
+		var sc2    := _camera.unproject_position(center + da * hs + db * hs)
+		var sc3    := _camera.unproject_position(center - da * hs + db * hs)
+		if _point_in_triangle_2d(screen_pos, sc0, sc1, sc2) or \
+		   _point_in_triangle_2d(screen_pos, sc0, sc2, sc3):
+			var d := screen_pos.distance_to((sc0 + sc2) * 0.5)
+			if d < best_dist:
+				best_dist = d
+				best      = plane_types[i]
+
 	return best
+
+func _point_in_triangle_2d(p: Vector2, a: Vector2, b: Vector2, c: Vector2) -> bool:
+	var d1 := (p - b).cross(a - b)
+	var d2 := (p - c).cross(b - c)
+	var d3 := (p - a).cross(c - a)
+	var has_neg := (d1 < 0) or (d2 < 0) or (d3 < 0)
+	var has_pos := (d1 > 0) or (d2 > 0) or (d3 > 0)
+	return not (has_neg and has_pos)
 
 func _dist_point_to_segment_2d(p: Vector2, a: Vector2, b: Vector2) -> float:
 	var ab   := b - a
@@ -289,12 +386,15 @@ func start_drag(screen_pos: Vector2) -> bool:
 	_drag_accumulated_angle = 0.0        # [NEW]
 
 	match h:
-		HandleType.TRANS_X: _drag_axis_world = _plane.global_basis.x
-		HandleType.TRANS_Y: _drag_axis_world = _plane.global_basis.y
-		HandleType.TRANS_Z: _drag_axis_world = _plane.global_basis.z   # BACK = +z
-		HandleType.ROT_X:   _drag_axis_world = _plane.global_basis.x
-		HandleType.ROT_Y:   _drag_axis_world = _plane.global_basis.y
-		HandleType.ROT_Z:   _drag_axis_world = _plane.global_basis.z   # BACK = +z
+		HandleType.TRANS_X:  _drag_axis_world = _plane.global_basis.x
+		HandleType.TRANS_Y:  _drag_axis_world = _plane.global_basis.y
+		HandleType.TRANS_Z:  _drag_axis_world = _plane.global_basis.z
+		HandleType.TRANS_XY: _drag_axis_world = Vector3.ZERO  # 2-axis, handled separately
+		HandleType.TRANS_XZ: _drag_axis_world = Vector3.ZERO
+		HandleType.TRANS_YZ: _drag_axis_world = Vector3.ZERO
+		HandleType.ROT_X:    _drag_axis_world = _plane.global_basis.x
+		HandleType.ROT_Y:    _drag_axis_world = _plane.global_basis.y
+		HandleType.ROT_Z:    _drag_axis_world = _plane.global_basis.z
 
 	# [FIX] Anchor drag plane tại điểm giao tia chuột với plane camera-facing
 	# → scale translate 1:1 với mouse dù camera gần hay xa
@@ -314,6 +414,8 @@ func update_drag(screen_pos: Vector2) -> void:
 	match _active_handle:
 		HandleType.TRANS_X, HandleType.TRANS_Y, HandleType.TRANS_Z:
 			_do_translate(screen_pos)
+		HandleType.TRANS_XY, HandleType.TRANS_XZ, HandleType.TRANS_YZ:
+			_do_translate_plane(screen_pos)
 		HandleType.ROT_X, HandleType.ROT_Y, HandleType.ROT_Z:
 			_do_rotate(screen_pos)
 			_drag_prev_mouse = screen_pos  # [NEW] update prev sau mỗi frame rotate
@@ -321,24 +423,40 @@ func update_drag(screen_pos: Vector2) -> void:
 	transform_changed.emit()
 
 func _do_translate(screen_pos: Vector2) -> void:
-	# [FIX] _drag_plane_pt đã được anchor tại hit point đầu tiên
-	# → delta world scale đúng 1:1 với mouse dù camera gần hay xa
 	var cam_fwd    := -_camera.global_basis.z
 	var proj_plane := Plane(cam_fwd, _drag_plane_pt)
-
 	var o0 := _camera.project_ray_origin(_drag_start_mouse)
 	var d0 := _camera.project_ray_normal(_drag_start_mouse)
 	var o1 := _camera.project_ray_origin(screen_pos)
 	var d1 := _camera.project_ray_normal(screen_pos)
-
 	var h0 = proj_plane.intersects_ray(o0, d0)
 	var h1 = proj_plane.intersects_ray(o1, d1)
 	if h0 == null or h1 == null:
 		return
-
 	var world_delta = h1 - h0
 	var projected   = _drag_axis_world * world_delta.dot(_drag_axis_world)
 	_plane.global_position = _drag_start_pos + projected
+
+func _do_translate_plane(screen_pos: Vector2) -> void:
+	# Di chuyển tự do trên mặt phẳng 2 trục — unproject lên mặt phẳng của handle
+	# Mặt phẳng này là mặt phẳng vuông góc với trục còn lại
+	var plane_normal: Vector3
+	match _active_handle:
+		HandleType.TRANS_XY: plane_normal = _drag_start_basis.z   # mặt phẳng XY vuông góc Z
+		HandleType.TRANS_XZ: plane_normal = _drag_start_basis.y   # mặt phẳng XZ vuông góc Y
+		HandleType.TRANS_YZ: plane_normal = _drag_start_basis.x   # mặt phẳng YZ vuông góc X
+		_: plane_normal = -_camera.global_basis.z
+
+	var proj_plane := Plane(plane_normal.normalized(), _drag_plane_pt)
+	var o0 := _camera.project_ray_origin(_drag_start_mouse)
+	var d0 := _camera.project_ray_normal(_drag_start_mouse)
+	var o1 := _camera.project_ray_origin(screen_pos)
+	var d1 := _camera.project_ray_normal(screen_pos)
+	var h0 = proj_plane.intersects_ray(o0, d0)
+	var h1 = proj_plane.intersects_ray(o1, d1)
+	if h0 == null or h1 == null:
+		return
+	_plane.global_position = _drag_start_pos + (h1 - h0)
 
 func _do_rotate(screen_pos: Vector2) -> void:
 	var dx          := screen_pos.x - _drag_prev_mouse.x
