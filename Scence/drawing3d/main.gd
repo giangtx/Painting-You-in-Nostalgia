@@ -24,6 +24,7 @@ var _ctrl_was_held:  bool         = false
 var _plane_gizmo: PlaneGizmo = null
 var _alt_held:    bool       = false   # trạng thái Alt hiện tại
 
+var _gizmo_just_attached: bool = false  # flag để detach gizmo khi user click lần đầu
 const DrawingPlaneScene = preload("res://Scence/drawing3d/DrawingPlane.tscn")
 
 # ─── Ready ────────────────────────────────────────────────────
@@ -89,6 +90,7 @@ func _input(event: InputEvent) -> void:
 		match event.keycode:
 			KEY_G:      grid.toggle()
 			KEY_F:      _focus_active_plane()
+			KEY_D:      _duplicate_active_plane()
 			KEY_HOME:   _reset_camera()
 			KEY_ESCAPE: _cancel_all()
 
@@ -98,8 +100,8 @@ func _input(event: InputEvent) -> void:
 		var e_held     := Input.is_key_pressed(KEY_E)
 
 		if event.pressed:
-			# Alt + click → gizmo drag
-			if _alt_held and _plane_gizmo and _plane_gizmo.visible:
+			# Gizmo visible → thử start drag trước (Alt giữ hoặc sau duplicate)
+			if _plane_gizmo and _plane_gizmo.visible:
 				if _plane_gizmo.start_drag(event.position):
 					return  # gizmo ăn input, không vẽ
 
@@ -108,6 +110,13 @@ func _input(event: InputEvent) -> void:
 				if _hovered_plane != null:
 					_switch_active_plane(_hovered_plane)
 				return
+
+			# Gizmo vừa attach sau duplicate → click đầu tiên detach gizmo
+			if _gizmo_just_attached:
+				_gizmo_just_attached = false
+				if _plane_gizmo:
+					_plane_gizmo.detach()
+				# Không return — tiếp tục xử lý input bình thường
 
 			if e_held:
 				_set_mode(Mode.ERASE)
@@ -142,10 +151,10 @@ func _input(event: InputEvent) -> void:
 			_plane_gizmo.update_drag(event.position)
 			return
 
-		# Gizmo hover update khi Alt giữ
-		if _alt_held and _plane_gizmo and _plane_gizmo.visible:
+		# Gizmo hover update khi gizmo đang visible (Alt giữ hoặc sau duplicate)
+		if _plane_gizmo and _plane_gizmo.visible:
 			_plane_gizmo.update_hover(event.position)
-			return
+			# Không return — vẫn cho các event khác chạy nếu không hover vào handle
 
 		if _mode == Mode.GUIDE:
 			guide_drawer.add_point(event.position)
@@ -428,6 +437,79 @@ func _focus_active_plane() -> void:
 	if not _active_plane.is_curved_surface:
 		plane_normal = -_active_plane.global_basis.z
 	camera.focus_on(target_pivot, target_distance, plane_normal)
+
+# ─── Duplicate active plane ───────────────────────────────────
+func _duplicate_active_plane() -> void:
+	if _active_plane == null:
+		return
+
+	var src_plane := _active_plane
+	var init_data := src_plane.get_init_data()
+	var strokes   := src_plane.get_strokes_data()
+
+	# Deactivate plane cũ
+	src_plane.hide_grid()
+	src_plane.set_active(false)
+	camera.active_plane = null
+
+	# Tạo plane mới tại cùng vị trí
+	var new_plane: DrawingPlane = DrawingPlaneScene.instantiate()
+	plane_container.add_child(new_plane)
+	new_plane.global_position = src_plane.global_position
+	new_plane.initialize(init_data)
+
+	# Copy strokes: rebuild mesh từ StrokeData trên parent mới
+	stroke_builder.setup(camera, new_plane.stroke_container, new_plane)
+	for stroke_data in strokes:
+		var sd := stroke_data as StrokeBuilder.StrokeData
+		if sd == null or sd.stamp_positions.is_empty():
+			continue
+		# Rebuild mesh từ stamp data đã có — dùng _build_mesh_from_stamps_local
+		var mi := stroke_builder._build_mesh_from_stamps_local(
+			sd.stamp_positions,
+			sd.stamp_normals,
+			sd.is_surface_normal,
+			sd.preset,
+			sd.rng_seed,
+			sd.color,
+			sd.brush_size,
+			sd.thickness,
+			sd.opacity
+		)
+		if mi:
+			if mi.material_override:
+				mi.material_override.render_priority = sd.render_order
+			# Tạo StrokeData mới cho plane mới
+			var new_sd                := StrokeBuilder.StrokeData.new()
+			new_sd.mesh_inst           = mi
+			new_sd.stamp_positions     = sd.stamp_positions.duplicate()
+			new_sd.stamp_normals       = sd.stamp_normals.duplicate()
+			new_sd.is_surface_normal   = sd.is_surface_normal
+			new_sd.rng_seed            = sd.rng_seed
+			new_sd.preset              = sd.preset
+			new_sd.brush_size          = sd.brush_size
+			new_sd.thickness           = sd.thickness
+			new_sd.opacity             = sd.opacity
+			new_sd.spacing             = sd.spacing
+			new_sd.color               = sd.color
+			new_sd.plane_right         = sd.plane_right
+			new_sd.plane_up            = sd.plane_up
+			new_sd.plane_normal        = sd.plane_normal
+			new_sd.render_order        = sd.render_order
+			new_plane.add_stroke(new_sd)
+
+	# Activate plane mới
+	_active_plane = new_plane
+	_active_plane.set_active(true)
+	camera.active_plane = _active_plane
+
+	# Attach gizmo ngay để user biết plane mới đang ở đâu
+	if _plane_gizmo:
+		_plane_gizmo.attach(_active_plane)
+		_gizmo_just_attached = true
+
+	await get_tree().physics_frame
+	await get_tree().physics_frame
 
 func _reset_camera() -> void:
 	camera._pivot    = Vector3.ZERO

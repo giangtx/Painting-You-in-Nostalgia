@@ -47,22 +47,22 @@ func initialize(data: Dictionary) -> void:
 			# Đặt node tại center của surface — gizmo sẽ hiện đúng vị trí
 			global_position = data["center"]
 			# Build basis từ tangent + up của surface
-			var tangent := (data["points"][-1] - data["points"][0]).normalized()
+			var tangent = (data["points"][-1] - data["points"][0]).normalized()
 			if tangent.length() < 0.001:
 				tangent = Vector3.RIGHT
 			var up_dir  := (data["up"] as Vector3).normalized()
-			var normal  := tangent.cross(up_dir).normalized()
+			var normal  = tangent.cross(up_dir).normalized()
 			global_basis = Basis(tangent, up_dir, -normal)
 			_build_surface_mesh(data["points"], data["up"], data["height"])
 
 		CurveDetector.Type.CLOSED:
 			is_curved_surface = true
 			global_position = data["center"]
-			var tangent := (data["points"][-1] - data["points"][0]).normalized()
+			var tangent = (data["points"][-1] - data["points"][0]).normalized()
 			if tangent.length() < 0.001:
 				tangent = Vector3.RIGHT
 			var up_dir  := (data["up"] as Vector3).normalized()
-			var normal  := tangent.cross(up_dir).normalized()
+			var normal  = tangent.cross(up_dir).normalized()
 			global_basis = Basis(tangent, up_dir, -normal)
 			var closed = data["points"].duplicate()
 			closed.append(data["points"][0])
