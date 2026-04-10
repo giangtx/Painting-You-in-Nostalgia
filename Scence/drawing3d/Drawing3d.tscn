@@ -113,11 +113,12 @@ width = 256
 height = 256
 noise = SubResource("FastNoiseLite_cyolj")
 
-[sub_resource type="Resource" id="Resource_rcbmk"]
+[sub_resource type="Resource" id="Resource_qv3s4"]
 script = ExtResource("8_6krxa")
 brush_name = "Pencil"
 brush_texture = ExtResource("9_diqqf")
 brush_size = 0.2
+thickness = 0.15
 angle_jitter = 0.5
 metadata/_custom_type_script = "uid://2nxeo13oc7br"
 
@@ -126,6 +127,7 @@ script = ExtResource("8_6krxa")
 brush_name = "Watercolor"
 brush_texture = ExtResource("10_qv3s4")
 brush_size = 0.2
+thickness = 0.15
 opacity = 0.8
 angle_jitter = 0.5
 metadata/_custom_type_script = "uid://2nxeo13oc7br"
@@ -223,7 +225,7 @@ script = ExtResource("5_df3d8")
 
 [node name="StrokeBuilder" type="Node" parent="." unique_id=753207935]
 script = ExtResource("7_y55qp")
-brushes = Array[ExtResource("8_6krxa")]([SubResource("Resource_rcbmk"), SubResource("Resource_np5a2")])
+brushes = Array[ExtResource("8_6krxa")]([SubResource("Resource_qv3s4"), SubResource("Resource_np5a2")])
 metadata/_custom_type_script = "uid://dyeno4mscc7xc"
 
 [node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=1165441771]

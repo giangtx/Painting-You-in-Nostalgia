@@ -154,10 +154,6 @@ theme_override_styles/pressed = SubResource("StyleBoxFlat_v83lq")
 theme_override_styles/hover = SubResource("StyleBoxFlat_5krbr")
 text = "Erase"
 
-[node name="Control" type="Control" parent="PanelContainer/ScrollContainer/MainVBox" unique_id=1199540446]
-custom_minimum_size = Vector2(0, 16)
-layout_mode = 2
-
 [node name="SectionBrush" type="VBoxContainer" parent="PanelContainer/ScrollContainer/MainVBox" unique_id=1532396648]
 layout_mode = 2
 
@@ -173,20 +169,22 @@ layout_mode = 2
 [node name="SectionSize" type="VBoxContainer" parent="PanelContainer/ScrollContainer/MainVBox" unique_id=1068709865]
 layout_mode = 2
 
-[node name="Label" type="Label" parent="PanelContainer/ScrollContainer/MainVBox/SectionSize" unique_id=2039971436]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.18039216, 0.18039216, 0.21960784, 1)
-theme_override_font_sizes/font_size = 9
-text = "Size"
-
-[node name="HBoxContainer" type="HBoxContainer" parent="PanelContainer/ScrollContainer/MainVBox/SectionSize" unique_id=1810439618]
-layout_mode = 2
-
-[node name="Label" type="Label" parent="PanelContainer/ScrollContainer/MainVBox/SectionSize/HBoxContainer" unique_id=1829046703]
+[node name="Label" type="Label" parent="PanelContainer/ScrollContainer/MainVBox/SectionSize" unique_id=1829046703]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.18039216, 0.18039216, 0.21960784, 1)
 theme_override_font_sizes/font_size = 9
 text = "Brush size:"
+
+[node name="HBoxContainer" type="HBoxContainer" parent="PanelContainer/ScrollContainer/MainVBox/SectionSize" unique_id=1810439618]
+layout_mode = 2
+
+[node name="SizeSlider" type="HSlider" parent="PanelContainer/ScrollContainer/MainVBox/SectionSize/HBoxContainer" unique_id=346234013]
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 0.01
+max_value = 1.0
+step = 0.001
+value = 0.08
 
 [node name="SizeLabel" type="Label" parent="PanelContainer/ScrollContainer/MainVBox/SectionSize/HBoxContainer" unique_id=989758040]
 layout_mode = 2
@@ -194,12 +192,55 @@ theme_override_colors/font_color = Color(0.5019608, 0.5019608, 0.53333336, 1)
 theme_override_font_sizes/font_size = 9
 text = "0.080"
 
-[node name="HSlider" type="HSlider" parent="PanelContainer/ScrollContainer/MainVBox/SectionSize" unique_id=346234013]
+[node name="SectionOpacity" type="VBoxContainer" parent="PanelContainer/ScrollContainer/MainVBox" unique_id=1217272768]
 layout_mode = 2
-min_value = 0.01
+
+[node name="Label" type="Label" parent="PanelContainer/ScrollContainer/MainVBox/SectionOpacity" unique_id=539682229]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.18039216, 0.18039216, 0.21960784, 1)
+theme_override_font_sizes/font_size = 9
+text = "Opacity"
+
+[node name="HBoxContainer" type="HBoxContainer" parent="PanelContainer/ScrollContainer/MainVBox/SectionOpacity" unique_id=168224625]
+layout_mode = 2
+
+[node name="OpacitySlider" type="HSlider" parent="PanelContainer/ScrollContainer/MainVBox/SectionOpacity/HBoxContainer" unique_id=922141183]
+layout_mode = 2
+size_flags_horizontal = 3
 max_value = 1.0
-step = 0.001
-value = 0.08
+step = 0.01
+value = 1.0
+
+[node name="OpacityLabel" type="Label" parent="PanelContainer/ScrollContainer/MainVBox/SectionOpacity/HBoxContainer" unique_id=1162623744]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.18039216, 0.18039216, 0.21960784, 1)
+theme_override_font_sizes/font_size = 9
+text = "1.00"
+
+[node name="SectionThickness" type="VBoxContainer" parent="PanelContainer/ScrollContainer/MainVBox" unique_id=1458046822]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="PanelContainer/ScrollContainer/MainVBox/SectionThickness" unique_id=1744876333]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.18039216, 0.18039216, 0.21960784, 1)
+theme_override_font_sizes/font_size = 9
+text = "Thickness"
+
+[node name="HBoxContainer" type="HBoxContainer" parent="PanelContainer/ScrollContainer/MainVBox/SectionThickness" unique_id=1163006288]
+layout_mode = 2
+
+[node name="ThicknessSlider" type="HSlider" parent="PanelContainer/ScrollContainer/MainVBox/SectionThickness/HBoxContainer" unique_id=1117584286]
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 1.0
+step = 0.01
+value = 0.2
+
+[node name="ThicknessLabel" type="Label" parent="PanelContainer/ScrollContainer/MainVBox/SectionThickness/HBoxContainer" unique_id=599960568]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.18039216, 0.18039216, 0.21960784, 1)
+theme_override_font_sizes/font_size = 9
+text = "1.00"
 
 [node name="SectionColor" type="VBoxContainer" parent="PanelContainer/ScrollContainer/MainVBox" unique_id=2134066105]
 layout_mode = 2

@@ -10,6 +10,7 @@ class StrokeData:
 	var preset:          BrushPreset     = null
 	var brush_size:      float           = 0.08
 	var thickness:       float           = 0.5
+	var opacity:         float           = 1.0   # snapshot opacity tại thời điểm vẽ
 	var spacing:         float           = 0.016
 	var color:           Color           = Color.BLACK
 	var plane_right:     Vector3         = Vector3.ZERO
@@ -42,10 +43,11 @@ var _preview_colors:  PackedColorArray   = PackedColorArray()
 var _preview_stamp_positions: Array[Vector3] = []
 var _preview_accumulated: float = 0.0
 var _preview_rng:     RandomNumberGenerator = RandomNumberGenerator.new()
-var _preview_preset:  BrushPreset = null
-var _preview_size:    float = 0.08
-var _preview_thickness: float = 0.5
-var _preview_spacing: float = 0.016
+var _preview_preset:    BrushPreset = null
+var _preview_size:      float = 0.08
+var _preview_thickness: float = 0.2
+var _preview_opacity:   float = 1.0
+var _preview_spacing:   float = 0.016
 
 func setup(camera: Camera3D, parent: Node3D, plane: DrawingPlane = null) -> void:
 	_camera = camera
@@ -80,6 +82,7 @@ func start_stroke(world_point: Vector3) -> void:
 	_preview_preset    = get_current_preset()
 	_preview_size      = _preview_preset.brush_size      if _preview_preset else 0.08
 	_preview_thickness = _preview_preset.thickness       if _preview_preset else 0.5
+	_preview_opacity   = _preview_preset.opacity         if _preview_preset else 1.0
 	_preview_spacing   = _preview_size * (_preview_preset.spacing_percent if _preview_preset else 0.2)
 	_preview_spacing   = maxf(_preview_spacing, MIN_DIST)
 
@@ -160,7 +163,7 @@ func _append_stamp_verts(pos: Vector3, rng: RandomNumberGenerator) -> void:
 
 	var col := Color(
 		current_color.r, current_color.g, current_color.b,
-		current_color.a * (preset.opacity if preset else 1.0) * stamp_opacity
+		current_color.a * _preview_opacity * stamp_opacity
 	)
 
 	var ftl := center + u * half_w - r * half_w + fwd * half_d
@@ -241,6 +244,7 @@ func finish_stroke() -> StrokeData:
 	data.preset            = _preview_preset
 	data.brush_size        = _preview_size
 	data.thickness         = _preview_thickness
+	data.opacity           = _preview_opacity
 	data.spacing           = _preview_spacing
 	data.color             = current_color
 	data.plane_right       = _plane_right
@@ -324,7 +328,8 @@ func erase_at(world_point: Vector3, strokes: Array, radius: float) -> void:
 				data_typed.plane_normal,
 				data_typed.color,
 				data_typed.brush_size,
-				data_typed.thickness
+				data_typed.thickness,
+				data_typed.opacity
 			)
 			if mi:
 				if mi.material_override:
@@ -342,7 +347,8 @@ func _build_mesh_from_stamps(
 	p_normal:        Vector3 = Vector3.ZERO,
 	col_override:    Color   = Color(-1, 0, 0),
 	size_override:   float   = -1.0,
-	thick_override:  float   = -1.0
+	thick_override:  float   = -1.0,
+	opacity_override: float  = -1.0   # -1 = đọc từ preset
 ) -> MeshInstance3D:
 	if stamp_positions.is_empty():
 		return null
@@ -352,8 +358,9 @@ func _build_mesh_from_stamps(
 	var pn := p_normal if p_normal != Vector3.ZERO else _plane_normal
 	var base_color := col_override if col_override.r >= 0.0 else current_color
 
-	var size      := size_override  if size_override  >= 0.0 else (preset.brush_size if preset else 0.08)
-	var thickness := thick_override if thick_override >= 0.0 else (preset.thickness  if preset else 0.5)
+	var size      := size_override    if size_override    >= 0.0 else (preset.brush_size if preset else 0.08)
+	var thickness := thick_override   if thick_override   >= 0.0 else (preset.thickness  if preset else 0.5)
+	var opacity   := opacity_override if opacity_override >= 0.0 else (preset.opacity    if preset else 1.0)
 
 	var verts   := PackedVector3Array()
 	var normals := PackedVector3Array()
@@ -389,7 +396,7 @@ func _build_mesh_from_stamps(
 
 		var col := Color(
 			base_color.r, base_color.g, base_color.b,
-			base_color.a * (preset.opacity if preset else 1.0) * stamp_opacity
+			base_color.a * opacity * stamp_opacity
 		)
 
 		var ftl = center + u * half_w - r * half_w + fwd * half_d

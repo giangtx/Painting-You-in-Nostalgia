@@ -43,6 +43,8 @@ func _setup_brush_panel() -> void:
 	_brush_panel.brush_size_changed.connect(_on_panel_size_changed)
 	_brush_panel.color_changed.connect(_on_panel_color_changed)
 	_brush_panel.mode_changed.connect(_on_panel_mode_changed)
+	_brush_panel.brush_opacity_changed.connect(_on_panel_opacity_changed)
+	_brush_panel.brush_thickness_changed.connect(_on_panel_thickness_changed)
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -102,6 +104,8 @@ func _on_panel_brush_changed(index: int) -> void:
 	var preset := stroke_builder.get_current_preset()
 	if preset:
 		_brush_panel.sync_size_to(preset.brush_size)
+		_brush_panel.sync_opacity_to(preset.opacity)
+		_brush_panel.sync_thickness_to(preset.thickness)
 
 func _on_panel_size_changed(value: float) -> void:
 	# Ghi thẳng vào preset đang active của stroke_builder — không qua index
@@ -119,6 +123,15 @@ func _on_panel_mode_changed(mode_val: int) -> void:
 		guide_drawer.cancel()
 	else:
 		_set_mode(Mode.DRAW)
+func _on_panel_opacity_changed(value: float) -> void:
+	var preset := stroke_builder.get_current_preset()
+	if preset:
+		preset.opacity = value
+
+func _on_panel_thickness_changed(value: float) -> void:
+	var preset := stroke_builder.get_current_preset()
+	if preset:
+		preset.thickness = value
 
 # ─── Stroke flow ──────────────────────────────────────────────
 func _start_stroke(screen_pos: Vector2) -> void:
