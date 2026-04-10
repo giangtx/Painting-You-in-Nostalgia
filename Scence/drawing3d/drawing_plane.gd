@@ -12,6 +12,7 @@ extends Node3D
 var plane_size:    Vector2 = Vector2.ZERO
 var _display_size: Vector2 = Vector2.ZERO
 var _strokes:      Array   = []   # Array[StrokeBuilder.StrokeData]
+var _init_data:    Dictionary = {}  # lưu lại để duplicate
 
 # Flag để stroke_builder biết cần dùng per-stamp normal
 var is_curved_surface: bool = false
@@ -31,6 +32,7 @@ var has_strokes: bool:
 
 func initialize(data: Dictionary) -> void:
 	plane_size = data["size"]
+	_init_data = data.duplicate(true)  # lưu lại để duplicate sau
 
 	match data["type"]:
 		CurveDetector.Type.STRAIGHT:
@@ -41,13 +43,27 @@ func initialize(data: Dictionary) -> void:
 			_build_collision()
 
 		CurveDetector.Type.CURVED:
-			is_curved_surface = true       # [NEW]
-			global_position = Vector3.ZERO
+			is_curved_surface = true
+			# Đặt node tại center của surface — gizmo sẽ hiện đúng vị trí
+			global_position = data["center"]
+			# Build basis từ tangent + up của surface
+			var tangent := (data["points"][-1] - data["points"][0]).normalized()
+			if tangent.length() < 0.001:
+				tangent = Vector3.RIGHT
+			var up_dir  := (data["up"] as Vector3).normalized()
+			var normal  := tangent.cross(up_dir).normalized()
+			global_basis = Basis(tangent, up_dir, -normal)
 			_build_surface_mesh(data["points"], data["up"], data["height"])
 
 		CurveDetector.Type.CLOSED:
-			is_curved_surface = true       # [NEW]
-			global_position = Vector3.ZERO
+			is_curved_surface = true
+			global_position = data["center"]
+			var tangent := (data["points"][-1] - data["points"][0]).normalized()
+			if tangent.length() < 0.001:
+				tangent = Vector3.RIGHT
+			var up_dir  := (data["up"] as Vector3).normalized()
+			var normal  := tangent.cross(up_dir).normalized()
+			global_basis = Basis(tangent, up_dir, -normal)
 			var closed = data["points"].duplicate()
 			closed.append(data["points"][0])
 			_build_surface_mesh(closed, data["up"], data["height"])
@@ -72,6 +88,20 @@ func _build_collision() -> void:
 	shape.size  = Vector3(plane_size.x, 50.0, 0.01)
 	collision_shape.shape = shape
 
+func get_init_data() -> Dictionary:
+	# Cập nhật center/basis hiện tại vào data (vì gizmo có thể đã move/rotate plane)
+	var data := _init_data.duplicate(true)
+	data["center"] = global_position
+	# Cập nhật lại các vector theo basis hiện tại cho STRAIGHT
+	if not is_curved_surface:
+		data["right"]  =  global_basis.x
+		data["up"]     =  global_basis.y
+		data["normal"] = -global_basis.z
+	return data
+
+func get_strokes_data() -> Array:
+	return _strokes.duplicate()  # shallow copy của array, StrokeData objects vẫn shared
+
 func add_stroke(data: StrokeBuilder.StrokeData) -> void:
 	if data == null or data.mesh_inst == null:
 		return
@@ -85,7 +115,11 @@ func erase_at(world_point: Vector3, stroke_builder: StrokeBuilder) -> void:
 	_strokes = _strokes.filter(func(d): return not d.stamp_positions.is_empty())
 
 func _build_surface_mesh(points: Array, up: Vector3, height: float) -> void:
-	var hh  := height * 0.5
+	var hh     := height * 0.5
+	# Points đang là world space — convert sang local space của node này
+	# (node đã được đặt tại global_position = center)
+	var origin := global_position
+
 	var mat := StandardMaterial3D.new()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.cull_mode    = BaseMaterial3D.CULL_DISABLED
@@ -94,8 +128,8 @@ func _build_surface_mesh(points: Array, up: Vector3, height: float) -> void:
 
 	var verts := PackedVector3Array()
 	for i in range(points.size() - 1):
-		var p0 : Vector3 = points[i]
-		var p1 : Vector3 = points[i + 1]
+		var p0 : Vector3 = points[i] - origin
+		var p1 : Vector3 = points[i + 1] - origin
 		var b0 := p0 - up * hh
 		var t0 := p0 + up * hh
 		var b1 := p1 - up * hh
@@ -120,8 +154,8 @@ func _build_surface_mesh(points: Array, up: Vector3, height: float) -> void:
 	var im := ImmediateMesh.new()
 	im.surface_begin(Mesh.PRIMITIVE_LINES)
 	for i in range(points.size() - 1):
-		var p0 : Vector3 = points[i]
-		var p1 : Vector3 = points[i + 1]
+		var p0 : Vector3 = points[i] - origin
+		var p1 : Vector3 = points[i + 1] - origin
 		im.surface_set_color(border_color)
 		im.surface_add_vertex(p0 - up * hh)
 		im.surface_add_vertex(p1 - up * hh)
@@ -129,34 +163,26 @@ func _build_surface_mesh(points: Array, up: Vector3, height: float) -> void:
 		im.surface_add_vertex(p0 + up * hh)
 		im.surface_add_vertex(p1 + up * hh)
 	im.surface_set_color(border_color)
-	im.surface_add_vertex(points[0]  - up * hh)
-	im.surface_add_vertex(points[0]  + up * hh)
-	im.surface_add_vertex(points[-1] - up * hh)
-	im.surface_add_vertex(points[-1] + up * hh)
+	im.surface_add_vertex(points[0]  - origin - up * hh)
+	im.surface_add_vertex(points[0]  - origin + up * hh)
+	im.surface_add_vertex(points[-1] - origin - up * hh)
+	im.surface_add_vertex(points[-1] - origin + up * hh)
 	im.surface_end()
 	_surface_border              = MeshInstance3D.new()
 	_surface_border.mesh          = im
 	_surface_border.material_override = bmat
-	_surface_border.visible       = false   # ẩn cho đến khi set_active(true)
+	_surface_border.visible       = false
 	add_child(_surface_border)
 
-	# ── [CHANGED] Collision: 2 lớp face (mặt trước + mặt sau) để hit_back_faces
-	# và hit_from_inside đều có normal chính xác từ cả hai phía ──────────────
-	#
-	# ConcavePolygonShape3D trong Godot 4 đã hỗ trợ backface hits khi
-	# PhysicsRayQueryParameters3D.hit_back_faces = true, nhưng normal trả về
-	# sẽ là normal của face gốc (không flip). Để nhận normal đúng hướng từ
-	# cả hai phía, ta thêm các face đảo chiều (winding ngược) vào cùng shape.
+	# Collision faces — local space
 	var faces := PackedVector3Array()
 	for i in range(points.size() - 1):
-		var p0 : Vector3 = points[i]
-		var p1 : Vector3 = points[i + 1]
-		# Mặt gốc (winding thuận)
+		var p0 : Vector3 = points[i] - origin
+		var p1 : Vector3 = points[i + 1] - origin
 		faces.append_array([
 			p0 - up*hh, p0 + up*hh, p1 + up*hh,
 			p0 - up*hh, p1 + up*hh, p1 - up*hh
 		])
-		# [NEW] Mặt đảo chiều — normal ngược lại → vẽ được từ phía sau
 		faces.append_array([
 			p1 + up*hh, p0 + up*hh, p0 - up*hh,
 			p1 - up*hh, p1 + up*hh, p0 - up*hh
@@ -194,15 +220,28 @@ func show_grid() -> void:
 	grid_mesh.visible = true
 
 func set_active(active: bool) -> void:
-	# Dùng flag thay vì disable physics hoàn toàn
-	# → inactive plane vẫn có collision để raycast hover hit được
-	# → main.gd tự lọc theo _active_plane khi vẽ/erase
 	var body := get_node("Body") as StaticBody3D
 	if body:
-		# Chỉ disable input processing, KHÔNG disable physics/collision
-		body.input_ray_pickable = false if not active else true
+		if active:
+			# Active plane: collision bật đầy đủ
+			body.collision_layer = 1
+			body.collision_mask  = 1
+		else:
+			# Inactive plane: tắt collision hoàn toàn
+			# → raycast khi vẽ/erase không hit được
+			# → chỉ bật lại tạm khi Ctrl giữ (gọi set_hoverable)
+			body.collision_layer = 0
+			body.collision_mask  = 0
 	# CURVED/CLOSED: chỉ hiện surface mesh khi plane đang active
 	if _surface_solid:
 		_surface_solid.visible  = active
 	if _surface_border:
 		_surface_border.visible = active
+
+# Bật/tắt collision tạm thời cho Ctrl+hover — không ảnh hưởng active state
+func set_hoverable(enabled: bool) -> void:
+	# Chỉ áp dụng cho inactive plane (active plane luôn có collision)
+	var body := get_node("Body") as StaticBody3D
+	if body and body.collision_layer == 0:
+		body.collision_layer = 1 if enabled else 0
+		body.collision_mask  = 1 if enabled else 0

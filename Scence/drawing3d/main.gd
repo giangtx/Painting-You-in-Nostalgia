@@ -3,7 +3,7 @@ extends Node3D
 
 @onready var camera:          Camera3D       = $Camera
 @onready var grid:            MeshInstance3D = $DrawingWorld/GridHelper
-@onready var gizmo:           Control        = $GizmoContainer
+@onready var gizmo:           Control        = $GizmoContainer        # viewport gizmo XYZ
 @onready var guide_drawer:    Node           = $GuideDrawer
 @onready var plane_container: Node3D         = $DrawingWorld/PlaneContainer
 @onready var stroke_builder:  StrokeBuilder  = $StrokeBuilder
@@ -16,25 +16,46 @@ enum Mode { DRAW, GUIDE, ERASE }
 var _mode: Mode = Mode.DRAW
 
 var _active_plane:   DrawingPlane = null
-var _hovered_plane:  DrawingPlane = null  # plane đang highlight bởi Ctrl+hover
+var _hovered_plane:  DrawingPlane = null
 var _last_mouse_pos: Vector2      = Vector2.ZERO
+var _ctrl_was_held:  bool         = false
+
+# ─── Plane Gizmo ──────────────────────────────────────────────
+var _plane_gizmo: PlaneGizmo = null
+var _alt_held:    bool       = false   # trạng thái Alt hiện tại
 
 const DrawingPlaneScene = preload("res://Scence/drawing3d/DrawingPlane.tscn")
 
+# ─── Ready ────────────────────────────────────────────────────
 func _ready() -> void:
 	gizmo.setup(camera)
 	_setup_preview_canvas()
+	_setup_plane_gizmo()
 	guide_drawer.setup(camera, _preview_canvas)
 	guide_drawer.guide_finished.connect(_on_guide_finished)
 	_setup_brush_panel()
 
-# Ctrl+hover cần chạy mỗi frame — kể cả khi chuột đứng yên
-# (vd: user bấm Ctrl sau khi dừng di chuột)
 func _process(_delta: float) -> void:
-	if Input.is_key_pressed(KEY_CTRL):
+	# Ctrl+hover: bật collision cho inactive planes để raycast tìm được
+	var ctrl_now := Input.is_key_pressed(KEY_CTRL)
+	if ctrl_now != _ctrl_was_held:
+		_ctrl_was_held = ctrl_now
+		_set_inactive_planes_hoverable(ctrl_now)
+		if not ctrl_now:
+			_clear_hover_highlight()
+
+	if ctrl_now:
 		_update_hover_highlight(_last_mouse_pos)
-	else:
-		_clear_hover_highlight()
+
+	# Alt: toggle gizmo visibility
+	var alt_now := Input.is_key_pressed(KEY_ALT)
+	if alt_now != _alt_held:
+		_alt_held = alt_now
+		if _plane_gizmo:
+			if alt_now and _active_plane != null:
+				_plane_gizmo.attach(_active_plane)
+			else:
+				_plane_gizmo.detach()
 
 func _setup_preview_canvas() -> void:
 	_preview_canvas             = CanvasLayer.new()
@@ -44,6 +65,12 @@ func _setup_preview_canvas() -> void:
 	_preview_line.default_color = Color(1.0, 0.85, 0.2, 0.9)
 	_preview_line.antialiased   = true
 	_preview_canvas.add_child(_preview_line)
+
+func _setup_plane_gizmo() -> void:
+	_plane_gizmo = PlaneGizmo.new()
+	add_child(_plane_gizmo)
+	_plane_gizmo.setup(camera)
+	_plane_gizmo.transform_changed.connect(_on_plane_gizmo_transform_changed)
 
 func _setup_brush_panel() -> void:
 	var init_size := stroke_builder.get_current_preset().brush_size \
@@ -56,11 +83,13 @@ func _setup_brush_panel() -> void:
 	_brush_panel.brush_opacity_changed.connect(_on_panel_opacity_changed)
 	_brush_panel.brush_thickness_changed.connect(_on_panel_thickness_changed)
 
+# ─── Input ────────────────────────────────────────────────────
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
 			KEY_G:      grid.toggle()
-			KEY_F:      _reset_camera()
+			KEY_F:      _focus_active_plane()
+			KEY_HOME:   _reset_camera()
 			KEY_ESCAPE: _cancel_all()
 
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
@@ -69,7 +98,12 @@ func _input(event: InputEvent) -> void:
 		var e_held     := Input.is_key_pressed(KEY_E)
 
 		if event.pressed:
-			# ─── Ctrl+click → switch active plane ───────────────────
+			# Alt + click → gizmo drag
+			if _alt_held and _plane_gizmo and _plane_gizmo.visible:
+				if _plane_gizmo.start_drag(event.position):
+					return  # gizmo ăn input, không vẽ
+
+			# Ctrl+click → switch active plane
 			if ctrl_held:
 				if _hovered_plane != null:
 					_switch_active_plane(_hovered_plane)
@@ -89,6 +123,11 @@ func _input(event: InputEvent) -> void:
 				_set_mode(Mode.DRAW)
 				_start_stroke(event.position)
 		else:  # released
+			# Kết thúc gizmo drag
+			if _plane_gizmo and _plane_gizmo.is_dragging():
+				_plane_gizmo.end_drag()
+				return
+
 			if _mode == Mode.GUIDE:
 				guide_drawer.finish_guide()
 				_set_mode(Mode.DRAW)
@@ -96,7 +135,17 @@ func _input(event: InputEvent) -> void:
 				_finish_stroke()
 
 	if event is InputEventMouseMotion:
-		_last_mouse_pos = event.position  # luôn cập nhật để _process dùng
+		_last_mouse_pos = event.position
+
+		# Gizmo drag update — ưu tiên trước mọi thứ
+		if _plane_gizmo and _plane_gizmo.is_dragging():
+			_plane_gizmo.update_drag(event.position)
+			return
+
+		# Gizmo hover update khi Alt giữ
+		if _alt_held and _plane_gizmo and _plane_gizmo.visible:
+			_plane_gizmo.update_hover(event.position)
+			return
 
 		if _mode == Mode.GUIDE:
 			guide_drawer.add_point(event.position)
@@ -105,6 +154,10 @@ func _input(event: InputEvent) -> void:
 			_continue_stroke(event.position)
 		elif _mode == Mode.ERASE and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 			_do_erase(event.position)
+
+# ─── Gizmo transform changed ──────────────────────────────────
+func _on_plane_gizmo_transform_changed() -> void:
+	pass  # camera không follow khi gizmo transform
 
 # ─── Đồng bộ mode ─────────────────────────────────────────────
 func _set_mode(m: Mode) -> void:
@@ -182,7 +235,7 @@ func _do_erase(screen_pos: Vector2) -> void:
 		return
 	_active_plane.erase_at(hit_data["position"], stroke_builder)
 
-# ─── Raycast chỉ vào active plane (dùng khi vẽ/erase) ────────
+# ─── Raycast chỉ vào active plane ────────────────────────────
 func _raycast_plane(screen_pos: Vector2) -> Dictionary:
 	var space  := get_world_3d().direct_space_state
 	var origin := camera.project_ray_origin(screen_pos)
@@ -209,7 +262,7 @@ func _raycast_plane(screen_pos: Vector2) -> Dictionary:
 		"normal":   result["normal"],
 	}
 
-# ─── Raycast bất kỳ plane nào (trừ excluded) ──────────────────
+# ─── Raycast bất kỳ plane nào (trừ excluded) ─────────────────
 func _raycast_any_plane(screen_pos: Vector2, excluded: DrawingPlane) -> DrawingPlane:
 	var space  := get_world_3d().direct_space_state
 	var origin := camera.project_ray_origin(screen_pos)
@@ -219,7 +272,6 @@ func _raycast_any_plane(screen_pos: Vector2, excluded: DrawingPlane) -> DrawingP
 	query.hit_back_faces  = true
 	query.hit_from_inside = true
 
-	# Exclude active plane bằng RID để raycast xuyên qua nó tìm plane phía sau
 	var exclude_rids: Array[RID] = []
 	if excluded != null:
 		var body := excluded.get_node_or_null("Body") as StaticBody3D
@@ -235,15 +287,20 @@ func _raycast_any_plane(screen_pos: Vector2, excluded: DrawingPlane) -> DrawingP
 	if hit_body == null:
 		return null
 
-	# Chỉ trả về nếu hit DrawingPlane — bỏ qua object khác trong scene
 	return hit_body.get_parent() as DrawingPlane
+
+func _set_inactive_planes_hoverable(enabled: bool) -> void:
+	for child in plane_container.get_children():
+		var plane := child as DrawingPlane
+		if plane != null and plane != _active_plane:
+			plane.set_hoverable(enabled)
 
 # ─── Ctrl hover highlight ─────────────────────────────────────
 func _update_hover_highlight(screen_pos: Vector2) -> void:
 	var hit_plane := _raycast_any_plane(screen_pos, _active_plane)
 
 	if hit_plane == _hovered_plane:
-		return  # không đổi gì
+		return
 
 	_clear_hover_highlight()
 
@@ -263,16 +320,49 @@ func _switch_active_plane(new_plane: DrawingPlane) -> void:
 
 	_clear_hover_highlight()
 
+	# Ẩn gizmo nếu đang hiện
+	if _plane_gizmo:
+		_plane_gizmo.detach()
+
 	if _active_plane != null:
 		_active_plane.hide_grid()
 		_active_plane.set_active(false)
+		camera.active_plane = null
 		_active_plane = null
 
 	_active_plane = new_plane
 	_active_plane.set_active(true)
 
+	# Pivot camera snap về điểm gần nhất trên plane mới
+	_snap_camera_pivot_to_plane(_active_plane)
+
+	# Neo camera theo plane mới
+	camera.active_plane = _active_plane
+
+	# Snap hướng camera nhìn vào plane
+	var plane_normal := -_active_plane.global_basis.z
+	if _active_plane.is_curved_surface:
+		plane_normal = Vector3.ZERO  # CURVED không có normal cố định, bỏ snap
+	if plane_normal != Vector3.ZERO:
+		camera.snap_to_plane(plane_normal)
+
+	# Nếu Alt đang giữ → hiện gizmo luôn
+	if _alt_held and _plane_gizmo:
+		_plane_gizmo.attach(_active_plane)
+
 	await get_tree().physics_frame
 	await get_tree().physics_frame
+
+# ─── Snap camera pivot về center của plane (mượt) ────────────
+func _snap_camera_pivot_to_plane(plane: DrawingPlane) -> void:
+	if plane == null:
+		return
+	var target_pivot    := plane.global_position
+	var current_dist    := camera.global_position.distance_to(target_pivot)
+	var target_distance := clampf(current_dist, 3.0, 15.0)
+	# Dùng focus_on để animate mượt — không giật
+	# plane_normal = ZERO → giữ nguyên góc nhìn hiện tại
+	camera.focus_on(target_pivot, target_distance, Vector3.ZERO)
 
 # ─── Guide finished ───────────────────────────────────────────
 func _on_guide_finished(points_3d: Array) -> void:
@@ -283,12 +373,17 @@ func _on_guide_finished(points_3d: Array) -> void:
 	if data.is_empty():
 		return
 
+	# Ẩn gizmo trước khi thay plane
+	if _plane_gizmo:
+		_plane_gizmo.detach()
+
 	if _active_plane != null:
 		if _active_plane.has_strokes:
 			_active_plane.hide_grid()
 			_active_plane.set_active(false)
 		else:
 			_active_plane.queue_free()
+		camera.active_plane = null
 		_active_plane = null
 
 	var plane: DrawingPlane = DrawingPlaneScene.instantiate()
@@ -297,6 +392,10 @@ func _on_guide_finished(points_3d: Array) -> void:
 	plane.initialize(data)
 	_active_plane = plane
 	_active_plane.set_active(true)
+
+	# Pivot snap và neo camera
+	_snap_camera_pivot_to_plane(_active_plane)
+	camera.active_plane = _active_plane
 
 	await get_tree().physics_frame
 	await get_tree().physics_frame
@@ -315,7 +414,20 @@ func _cancel_all() -> void:
 	stroke_builder.cancel_stroke()
 	_preview_line.clear_points()
 	_clear_hover_highlight()
+	if _plane_gizmo:
+		_plane_gizmo.end_drag()
 	_set_mode(Mode.DRAW)
+
+func _focus_active_plane() -> void:
+	if _active_plane == null:
+		return
+	var target_pivot    := _active_plane.global_position
+	var current_dist    := camera.global_position.distance_to(target_pivot)
+	var target_distance := clampf(current_dist, 3.0, 15.0)
+	var plane_normal    := Vector3.ZERO
+	if not _active_plane.is_curved_surface:
+		plane_normal = -_active_plane.global_basis.z
+	camera.focus_on(target_pivot, target_distance, plane_normal)
 
 func _reset_camera() -> void:
 	camera._pivot    = Vector3.ZERO

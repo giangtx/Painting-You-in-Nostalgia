@@ -2,54 +2,55 @@
 class_name StrokeBuilder
 extends Node
 
-# ── StrokeData: lưu đủ thông tin để rebuild mesh sau khi erase ──
+# ── StrokeData ───────────────────────────────────────────────
 class StrokeData:
-	var mesh_inst:       MeshInstance3D  = null
-	var stamp_positions: Array[Vector3]  = []
-	# [NEW] Normal tại mỗi stamp — dùng để căn chỉnh stamp theo bề mặt cong
-	# Nếu is_surface_normal = false thì tất cả stamp dùng chung plane_normal (STRAIGHT)
-	var stamp_normals:   Array[Vector3]  = []
-	var is_surface_normal: bool          = false
-	var rng_seed:        int             = 0
-	var preset:          BrushPreset     = null
-	var brush_size:      float           = 0.08
-	var thickness:       float           = 0.5
-	var opacity:         float           = 1.0
-	var spacing:         float           = 0.016
-	var color:           Color           = Color.BLACK
-	var plane_right:     Vector3         = Vector3.ZERO
-	var plane_up:        Vector3         = Vector3.ZERO
-	var plane_normal:    Vector3         = Vector3.ZERO
-	var render_order:    int             = 0
+	var mesh_inst:         MeshInstance3D = null
+	# Stamp positions lưu theo LOCAL SPACE của stroke_container
+	# → mesh tự follow khi DrawingPlane transform thay đổi
+	var stamp_positions:   Array[Vector3] = []
+	var stamp_normals:     Array[Vector3] = []   # local space normals
+	var is_surface_normal: bool           = false
+	var rng_seed:          int            = 0
+	var preset:            BrushPreset    = null
+	var brush_size:        float          = 0.08
+	var thickness:         float          = 0.5
+	var opacity:           float          = 1.0
+	var spacing:           float          = 0.016
+	var color:             Color          = Color.BLACK
+	var plane_right:       Vector3        = Vector3.ZERO  # local space
+	var plane_up:          Vector3        = Vector3.ZERO  # local space
+	var plane_normal:      Vector3        = Vector3.ZERO  # local space
+	var render_order:      int            = 0
 
-@export var brushes:         Array[BrushPreset] = []
-var current_brush_index:     int                = 0
-var current_color:           Color              = Color.BLACK
+@export var brushes:          Array[BrushPreset] = []
+var current_brush_index:      int                = 0
+var current_color:            Color              = Color.BLACK
 
 const MIN_DIST := 0.003
 
 var _stroke_counter: int = 0
 
-var _points:        Array[Vector3] = []
-var _camera:        Camera3D       = null
-var _plane_normal:  Vector3        = Vector3.ZERO
-var _plane_right:   Vector3        = Vector3.ZERO
-var _plane_up:      Vector3        = Vector3.ZERO
-var _preview_inst:  MeshInstance3D = null
-var _parent:        Node3D         = null
-var _rng:           RandomNumberGenerator = RandomNumberGenerator.new()
+var _points:       Array[Vector3] = []
+var _camera:       Camera3D       = null
+var _plane:        DrawingPlane   = null   # ref tới plane hiện tại
+var _parent:       Node3D         = null   # stroke_container
 
-# [NEW] Flag: plane này có cần per-stamp normal không (CURVED/CLOSED)
+# Basis local của plane — dùng để convert world→local
+var _plane_normal: Vector3 = Vector3.ZERO
+var _plane_right:  Vector3 = Vector3.ZERO
+var _plane_up:     Vector3 = Vector3.ZERO
 var _use_surface_normal: bool = false
 
-# ── Preview incremental — chỉ append, không rebuild toàn bộ ──
+var _preview_inst: MeshInstance3D = null
+var _rng:          RandomNumberGenerator = RandomNumberGenerator.new()
+
+# ── Preview incremental buffers (local space) ─────────────────
 var _preview_verts:   PackedVector3Array = PackedVector3Array()
 var _preview_normals: PackedVector3Array = PackedVector3Array()
 var _preview_uvs:     PackedVector2Array = PackedVector2Array()
 var _preview_colors:  PackedColorArray   = PackedColorArray()
-var _preview_stamp_positions: Array[Vector3] = []
-# [NEW] Buffer lưu normal tại mỗi stamp trong quá trình preview
-var _preview_stamp_normals: Array[Vector3] = []
+var _preview_stamp_positions: Array[Vector3] = []  # local space
+var _preview_stamp_normals:   Array[Vector3] = []  # local space
 var _preview_accumulated: float = 0.0
 var _preview_rng:     RandomNumberGenerator = RandomNumberGenerator.new()
 var _preview_preset:    BrushPreset = null
@@ -58,14 +59,18 @@ var _preview_thickness: float = 0.2
 var _preview_opacity:   float = 1.0
 var _preview_spacing:   float = 0.016
 
+# ── Setup ─────────────────────────────────────────────────────
 func setup(camera: Camera3D, parent: Node3D, plane: DrawingPlane = null) -> void:
 	_camera = camera
 	_parent = parent
+	_plane  = plane
 	if plane != null:
+		# Lưu basis trong local space của stroke_container (= plane local)
+		# stroke_container là child trực tiếp của DrawingPlane nên
+		# to_local của stroke_container ≈ to_local của plane
 		_plane_right  =  plane.global_basis.x
 		_plane_up     =  plane.global_basis.y
 		_plane_normal = -plane.global_basis.z
-		# [NEW] Kiểm tra loại plane để biết có dùng per-stamp normal không
 		_use_surface_normal = plane.is_curved_surface
 	else:
 		_plane_right  =  camera.global_basis.x
@@ -78,7 +83,24 @@ func get_current_preset() -> BrushPreset:
 		return null
 	return brushes[clamp(current_brush_index, 0, brushes.size() - 1)]
 
-# [CHANGED] Thêm tham số hit_normal — normal bề mặt tại điểm chạm
+# ── Helpers: world ↔ local ────────────────────────────────────
+func _to_local(world_pos: Vector3) -> Vector3:
+	if _parent == null:
+		return world_pos
+	return _parent.to_local(world_pos)
+
+func _local_normal_to_world(local_n: Vector3) -> Vector3:
+	if _parent == null:
+		return local_n
+	# Rotate-only transform (không scale)
+	return _parent.global_basis * local_n
+
+func _world_normal_to_local(world_n: Vector3) -> Vector3:
+	if _parent == null:
+		return world_n
+	return _parent.global_basis.inverse() * world_n
+
+# ── Stroke start ──────────────────────────────────────────────
 func start_stroke(world_point: Vector3, hit_normal: Vector3 = Vector3.ZERO) -> void:
 	_points.clear()
 	_points.append(world_point)
@@ -89,7 +111,7 @@ func start_stroke(world_point: Vector3, hit_normal: Vector3 = Vector3.ZERO) -> v
 	_preview_uvs.clear()
 	_preview_colors.clear()
 	_preview_stamp_positions.clear()
-	_preview_stamp_normals.clear()  # [NEW]
+	_preview_stamp_normals.clear()
 	_preview_accumulated = 0.0
 
 	_preview_preset    = get_current_preset()
@@ -101,16 +123,14 @@ func start_stroke(world_point: Vector3, hit_normal: Vector3 = Vector3.ZERO) -> v
 
 	_preview_rng.seed = _rng.seed
 
-	# [CHANGED] Truyền hit_normal vào stamp đầu tiên
 	_append_stamps_for_segment(world_point, world_point, true, hit_normal)
 
 	if _preview_inst != null:
 		_preview_inst.queue_free()
 	_preview_inst           = MeshInstance3D.new()
-	_preview_inst.top_level = true
+	_preview_inst.top_level = false   # follow stroke_container transform
 	_parent.add_child(_preview_inst)
 
-# [CHANGED] Thêm hit_normal
 func add_point(world_point: Vector3, hit_normal: Vector3 = Vector3.ZERO) -> void:
 	if _points.is_empty():
 		return
@@ -118,67 +138,65 @@ func add_point(world_point: Vector3, hit_normal: Vector3 = Vector3.ZERO) -> void
 		return
 	var prev = _points.back()
 	_points.append(world_point)
-
 	_append_stamps_for_segment(prev, world_point, false, hit_normal)
 	_flush_preview_mesh()
 
-# [CHANGED] Thêm hit_normal — dùng để nội suy normal dọc segment
+# ── Stamp segment ─────────────────────────────────────────────
 func _append_stamps_for_segment(
 	from: Vector3, to: Vector3, is_first: bool,
 	hit_normal: Vector3 = Vector3.ZERO
 ) -> void:
 	if is_first:
-		var sn := _resolve_stamp_normal(hit_normal)
-		_preview_stamp_positions.append(from)
-		_preview_stamp_normals.append(sn)
-		_append_stamp_verts(from, sn, _preview_rng)
+		var sn_local := _resolve_stamp_normal_local(hit_normal)
+		var pos_local := _to_local(from)
+		_preview_stamp_positions.append(pos_local)
+		_preview_stamp_normals.append(sn_local)
+		_append_stamp_verts(pos_local, sn_local, _preview_rng)
 		return
 
 	var seg_len := from.distance_to(to)
 	if seg_len < 0.0001:
 		return
 
-	# Normal của segment này = hit_normal tại điểm "to"
-	# Nội suy từ normal stamp cuối → hit_normal hiện tại
-	var prev_normal = _preview_stamp_normals.back() if not _preview_stamp_normals.is_empty() \
-					  else _resolve_stamp_normal(hit_normal)
+	var prev_normal_local = _preview_stamp_normals.back() \
+		if not _preview_stamp_normals.is_empty() \
+		else _resolve_stamp_normal_local(hit_normal)
+	var target_normal_local := _resolve_stamp_normal_local(hit_normal)
 
 	_preview_accumulated += seg_len
 	while _preview_accumulated >= _preview_spacing:
 		_preview_accumulated -= _preview_spacing
-		var t   := (seg_len - _preview_accumulated) / seg_len
-		var pos := from.lerp(to, t)
-		# Nội suy smooth normal theo t
-		var sn  = prev_normal.slerp(_resolve_stamp_normal(hit_normal), t).normalized()
-		_preview_stamp_positions.append(pos)
-		_preview_stamp_normals.append(sn)
-		_append_stamp_verts(pos, sn, _preview_rng)
+		var t         := (seg_len - _preview_accumulated) / seg_len
+		var pos_world := from.lerp(to, t)
+		var pos_local := _to_local(pos_world)
+		var sn_local  = prev_normal_local.slerp(target_normal_local, t).normalized()
+		_preview_stamp_positions.append(pos_local)
+		_preview_stamp_normals.append(sn_local)
+		_append_stamp_verts(pos_local, sn_local, _preview_rng)
 
-# [NEW] Resolve normal: dùng hit_normal nếu là curved surface, ngược lại dùng plane_normal
-func _resolve_stamp_normal(hit_normal: Vector3) -> Vector3:
-	if _use_surface_normal and hit_normal != Vector3.ZERO:
-		return hit_normal.normalized()
-	return _plane_normal
+# Resolve normal và convert sang local space
+func _resolve_stamp_normal_local(hit_normal_world: Vector3) -> Vector3:
+	var world_n: Vector3
+	if _use_surface_normal and hit_normal_world != Vector3.ZERO:
+		world_n = hit_normal_world.normalized()
+	else:
+		world_n = _plane_normal
+	return _world_normal_to_local(world_n).normalized()
 
-# [CHANGED] Thêm stamp_normal vào signature — tính pr/pu/pn từ normal thực
+# ── Append stamp verts (local space) ─────────────────────────
+# pos và stamp_normal đều đã là LOCAL SPACE
 func _append_stamp_verts(
-	pos: Vector3, stamp_normal: Vector3,
+	pos_local: Vector3, normal_local: Vector3,
 	rng: RandomNumberGenerator
 ) -> void:
 	var preset    := _preview_preset
 	var size      := _preview_size
 	var thickness := _preview_thickness
+	var pn        := normal_local.normalized()
 
-	# [CHANGED] Tính local basis từ stamp_normal thay vì dùng _plane_right/up cố định
-	var pr: Vector3
-	var pu: Vector3
-	var pn: Vector3 = stamp_normal.normalized()
-
-	# Xây right/up vuông góc với pn
-	# Chọn reference up tránh degenerate khi pn gần song song với Y
 	var ref_up := Vector3.UP if absf(pn.dot(Vector3.UP)) < 0.9 else Vector3.RIGHT
-	pr = ref_up.cross(pn).normalized()
-	pu = pn.cross(pr).normalized()
+	var pr     := ref_up.cross(pn).normalized()
+	var pu     := pn.cross(pr).normalized()
 
 	var stamp_angle   := rng.randf_range(-1.0, 1.0) * (preset.angle_jitter   if preset else 0.0)
 	var stamp_scale   := 1.0 + rng.randf_range(-1.0, 1.0) * (preset.size_jitter    if preset else 0.1)
@@ -195,7 +213,7 @@ func _append_stamp_verts(
 
 	var half_w := size * stamp_scale * 0.5
 	var half_d := half_w * thickness
-	var center := pos + scatter_offset
+	var center := pos_local + scatter_offset
 
 	var cos_a := cos(stamp_angle)
 	var sin_a := sin(stamp_angle)
@@ -224,27 +242,24 @@ func _append_stamp_verts(
 	_add_quad(_preview_verts, _preview_normals, _preview_uvs, _preview_colors, fbl, ftl, btl, bbl, -r,   col)
 	_add_quad(_preview_verts, _preview_normals, _preview_uvs, _preview_colors, fbr, bbr, btr, ftr, r,    col)
 
-# Upload buffer lên GPU
+# ── Flush preview mesh ────────────────────────────────────────
 func _flush_preview_mesh() -> void:
 	if _preview_inst == null or _preview_verts.is_empty():
 		return
-
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = _preview_verts
 	arrays[Mesh.ARRAY_NORMAL] = _preview_normals
 	arrays[Mesh.ARRAY_TEX_UV] = _preview_uvs
 	arrays[Mesh.ARRAY_COLOR]  = _preview_colors
-
 	var amesh := ArrayMesh.new()
 	amesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-
 	var mat := _build_material(_preview_preset)
 	mat.render_priority = _stroke_counter + 1
-
 	_preview_inst.mesh              = amesh
 	_preview_inst.material_override = mat
 
+# ── Finish stroke ─────────────────────────────────────────────
 func finish_stroke() -> StrokeData:
 	if _points.size() < 2:
 		if _preview_inst:
@@ -252,15 +267,13 @@ func finish_stroke() -> StrokeData:
 			_preview_inst = null
 		_points.clear()
 		_preview_stamp_positions.clear()
-		_preview_stamp_normals.clear()  # [NEW]
+		_preview_stamp_normals.clear()
 		return null
 
 	var stamp_positions: Array[Vector3] = []
-	stamp_positions.assign(_preview_stamp_positions)
-
-	# [NEW] Snapshot normals
+	stamp_positions.assign(_preview_stamp_positions)  # already local space
 	var stamp_normals: Array[Vector3] = []
-	stamp_normals.assign(_preview_stamp_normals)
+	stamp_normals.assign(_preview_stamp_normals)      # already local space
 
 	var mi := _bake_mesh_from_buffers()
 	if mi == null:
@@ -279,26 +292,28 @@ func finish_stroke() -> StrokeData:
 	if mi.material_override:
 		mi.material_override.render_priority = _stroke_counter
 
-	var data                 := StrokeData.new()
-	data.mesh_inst            = mi
-	data.stamp_positions      = stamp_positions
-	data.stamp_normals        = stamp_normals         # [NEW]
-	data.is_surface_normal    = _use_surface_normal   # [NEW]
-	data.rng_seed             = _rng.seed
-	data.preset               = _preview_preset
-	data.brush_size           = _preview_size
-	data.thickness            = _preview_thickness
-	data.opacity              = _preview_opacity
-	data.spacing              = _preview_spacing
-	data.color                = current_color
-	data.plane_right          = _plane_right
-	data.plane_up             = _plane_up
-	data.plane_normal         = _plane_normal
-	data.render_order         = _stroke_counter
+	# plane_right/up/normal lưu dưới dạng local-space direction
+	# (vì basis của _parent ≈ basis của plane, to_local chỉ translate)
+	var data                  := StrokeData.new()
+	data.mesh_inst             = mi
+	data.stamp_positions       = stamp_positions
+	data.stamp_normals         = stamp_normals
+	data.is_surface_normal     = _use_surface_normal
+	data.rng_seed              = _rng.seed
+	data.preset                = _preview_preset
+	data.brush_size            = _preview_size
+	data.thickness             = _preview_thickness
+	data.opacity               = _preview_opacity
+	data.spacing               = _preview_spacing
+	data.color                 = current_color
+	data.plane_right           = _world_normal_to_local(_plane_right)
+	data.plane_up              = _world_normal_to_local(_plane_up)
+	data.plane_normal          = _world_normal_to_local(_plane_normal)
+	data.render_order          = _stroke_counter
 
 	_points.clear()
 	_preview_stamp_positions.clear()
-	_preview_stamp_normals.clear()  # [NEW]
+	_preview_stamp_normals.clear()
 	_preview_verts.clear()
 	_preview_normals.clear()
 	_preview_uvs.clear()
@@ -308,21 +323,18 @@ func finish_stroke() -> StrokeData:
 func _bake_mesh_from_buffers() -> MeshInstance3D:
 	if _preview_verts.is_empty():
 		return null
-
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = _preview_verts
 	arrays[Mesh.ARRAY_NORMAL] = _preview_normals
 	arrays[Mesh.ARRAY_TEX_UV] = _preview_uvs
 	arrays[Mesh.ARRAY_COLOR]  = _preview_colors
-
 	var amesh := ArrayMesh.new()
 	amesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-
 	var mi              := MeshInstance3D.new()
 	mi.mesh              = amesh
 	mi.material_override = _build_material(_preview_preset)
-	mi.top_level         = true
+	mi.top_level         = false   # follow stroke_container → follow DrawingPlane
 	return mi
 
 func cancel_stroke() -> void:
@@ -331,7 +343,7 @@ func cancel_stroke() -> void:
 		_preview_inst = null
 	_points.clear()
 	_preview_stamp_positions.clear()
-	_preview_stamp_normals.clear()  # [NEW]
+	_preview_stamp_normals.clear()
 	_preview_verts.clear()
 	_preview_normals.clear()
 	_preview_uvs.clear()
@@ -341,23 +353,30 @@ func is_drawing() -> bool:
 	return not _points.is_empty()
 
 # ── Eraser ────────────────────────────────────────────────────
+# world_point: world space hit point từ raycast
 func erase_at(world_point: Vector3, strokes: Array, radius: float) -> void:
 	for data in strokes:
 		var data_typed := data as StrokeData
 		if data_typed == null or data_typed.stamp_positions.is_empty():
 			continue
+		if data_typed.mesh_inst == null:
+			continue
+
+		# Convert world hit point → local space của mesh parent
+		var parent_node := data_typed.mesh_inst.get_parent() as Node3D
+		var local_hit   := world_point
+		if parent_node:
+			local_hit = parent_node.to_local(world_point)
 
 		var before_count := data_typed.stamp_positions.size()
-
-		# [CHANGED] Erase cần giữ sync giữa positions và normals
-		var kept_pos:    Array[Vector3] = []
-		var kept_nrm:    Array[Vector3] = []
-		var has_normals  := data_typed.stamp_normals.size() == data_typed.stamp_positions.size()
+		var kept_pos: Array[Vector3] = []
+		var kept_nrm: Array[Vector3] = []
+		var has_normals := data_typed.stamp_normals.size() == data_typed.stamp_positions.size()
 
 		for i in range(data_typed.stamp_positions.size()):
-			var sp := data_typed.stamp_positions[i]
-			if sp.distance_to(world_point) > radius:
-				kept_pos.append(sp)
+			# stamp_positions đã là local space → compare trực tiếp
+			if data_typed.stamp_positions[i].distance_to(local_hit) > radius:
+				kept_pos.append(data_typed.stamp_positions[i])
 				if has_normals:
 					kept_nrm.append(data_typed.stamp_normals[i])
 
@@ -373,15 +392,12 @@ func erase_at(world_point: Vector3, strokes: Array, radius: float) -> void:
 			data_typed.mesh_inst = null
 
 		if kept_pos.size() >= 1:
-			var mi := _build_mesh_from_stamps(
+			var mi := _build_mesh_from_stamps_local(
 				kept_pos,
 				kept_nrm if has_normals else [],
 				data_typed.is_surface_normal,
 				data_typed.preset,
 				data_typed.rng_seed,
-				data_typed.plane_right,
-				data_typed.plane_up,
-				data_typed.plane_normal,
 				data_typed.color,
 				data_typed.brush_size,
 				data_typed.thickness,
@@ -393,32 +409,29 @@ func erase_at(world_point: Vector3, strokes: Array, radius: float) -> void:
 				data_typed.mesh_inst = mi
 				_parent.add_child(mi)
 
-# ── Build mesh từ stamp positions (dùng cho erase rebuild) ───
-# [CHANGED] Thêm stamp_normals và is_surface_normal
-func _build_mesh_from_stamps(
-	stamp_positions:   Array,
-	stamp_normals:     Array,       # [NEW] Array[Vector3], có thể empty
-	is_surface_normal: bool,        # [NEW]
+# ── Build mesh từ local-space stamp positions ─────────────────
+func _build_mesh_from_stamps_local(
+	stamp_positions:   Array,   # local space
+	stamp_normals:     Array,   # local space
+	is_surface_normal: bool,
 	preset:            BrushPreset,
 	rng_seed:          int,
-	p_right:           Vector3 = Vector3.ZERO,
-	p_up:              Vector3 = Vector3.ZERO,
-	p_normal:          Vector3 = Vector3.ZERO,
-	col_override:      Color   = Color(-1, 0, 0),
-	size_override:     float   = -1.0,
-	thick_override:    float   = -1.0,
-	opacity_override:  float   = -1.0
+	col_override:      Color  = Color(-1, 0, 0),
+	size_override:     float  = -1.0,
+	thick_override:    float  = -1.0,
+	opacity_override:  float  = -1.0
 ) -> MeshInstance3D:
 	if stamp_positions.is_empty():
 		return null
 
-	var fallback_normal := p_normal if p_normal != Vector3.ZERO else _plane_normal
-	var base_color      := col_override if col_override.r >= 0.0 else current_color
-	var size            := size_override    if size_override    >= 0.0 else (preset.brush_size if preset else 0.08)
-	var thickness       := thick_override   if thick_override   >= 0.0 else (preset.thickness  if preset else 0.5)
-	var opacity         := opacity_override if opacity_override >= 0.0 else (preset.opacity    if preset else 1.0)
-
+	var base_color := col_override if col_override.r >= 0.0 else current_color
+	var size       := size_override    if size_override    >= 0.0 else (preset.brush_size if preset else 0.08)
+	var thickness  := thick_override   if thick_override   >= 0.0 else (preset.thickness  if preset else 0.5)
+	var opacity    := opacity_override if opacity_override >= 0.0 else (preset.opacity    if preset else 1.0)
 	var has_normals := is_surface_normal and stamp_normals.size() == stamp_positions.size()
+
+	# Fallback normal: local Z (forward của stroke_container ≈ normal của plane)
+	var fallback_normal := Vector3(0, 0, -1)
 
 	var verts   := PackedVector3Array()
 	var normals := PackedVector3Array()
@@ -429,20 +442,17 @@ func _build_mesh_from_stamps(
 	rng.seed = rng_seed
 
 	for i in range(stamp_positions.size()):
-		var pos := stamp_positions[i] as Vector3
+		var pos_local := stamp_positions[i] as Vector3
 
-		# [CHANGED] Lấy normal per-stamp hoặc fallback về plane_normal
-		var sn: Vector3
+		var pn: Vector3
 		if has_normals:
-			sn = (stamp_normals[i] as Vector3).normalized()
+			pn = (stamp_normals[i] as Vector3).normalized()
 		else:
-			sn = fallback_normal.normalized()
+			pn = fallback_normal
 
-		# Tính basis từ sn
-		var ref_up := Vector3.UP if absf(sn.dot(Vector3.UP)) < 0.9 else Vector3.RIGHT
-		var pr     := ref_up.cross(sn).normalized()
-		var pu     := sn.cross(pr).normalized()
-		var pn     := sn
+		var ref_up := Vector3.UP if absf(pn.dot(Vector3.UP)) < 0.9 else Vector3.RIGHT
+		var pr     := ref_up.cross(pn).normalized()
+		var pu     := pn.cross(pr).normalized()
 
 		var stamp_angle   := rng.randf_range(-1.0, 1.0) * (preset.angle_jitter   if preset else 0.0)
 		var stamp_scale   := 1.0 + rng.randf_range(-1.0, 1.0) * (preset.size_jitter    if preset else 0.1)
@@ -459,7 +469,7 @@ func _build_mesh_from_stamps(
 
 		var half_w := size * stamp_scale * 0.5
 		var half_d := half_w * thickness
-		var center = pos + scatter_offset
+		var center := pos_local + scatter_offset
 
 		var cos_a := cos(stamp_angle)
 		var sin_a := sin(stamp_angle)
@@ -504,10 +514,10 @@ func _build_mesh_from_stamps(
 	var mi              := MeshInstance3D.new()
 	mi.mesh              = amesh
 	mi.material_override = _build_material(preset)
-	mi.top_level         = true
+	mi.top_level         = false   # follow parent → follow DrawingPlane
 	return mi
 
-# Helper — add 1 quad
+# ── Helper: add 1 quad ────────────────────────────────────────
 func _add_quad(
 	verts:   PackedVector3Array,
 	normals: PackedVector3Array,
@@ -526,13 +536,11 @@ func _add_quad(
 func _build_material(preset: BrushPreset) -> ShaderMaterial:
 	var mat   := ShaderMaterial.new()
 	mat.shader = _create_shader()
-
 	if preset and preset.brush_texture != null:
 		mat.set_shader_parameter("brush_tex",     preset.brush_texture)
 		mat.set_shader_parameter("use_brush_tex", true)
 	else:
 		mat.set_shader_parameter("use_brush_tex", false)
-
 	return mat
 
 func _create_shader() -> Shader:
@@ -553,9 +561,7 @@ void fragment() {
 	);
 
 	float facing = abs(dot(normalize(NORMAL), vec3(0.0, 0.0, 1.0)));
-
 	if (facing < 0.15) discard;
-
 	float face_alpha = smoothstep(0.15, 0.5, facing);
 
 	float alpha = COLOR.a * face_alpha;
