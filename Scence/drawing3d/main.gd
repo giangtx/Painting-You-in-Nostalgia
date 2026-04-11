@@ -477,8 +477,9 @@ func _duplicate_active_plane() -> void:
 			sd.opacity
 		)
 		if mi:
-			if mi.material_override:
-				mi.material_override.render_priority = sd.render_order
+			for _si in mi.get_surface_override_material_count():
+				var _sm := mi.get_surface_override_material(_si)
+				if _sm: _sm.render_priority = sd.render_order
 			# Tạo StrokeData mới cho plane mới
 			var new_sd                := StrokeBuilder.StrokeData.new()
 			new_sd.mesh_inst           = mi

@@ -81,6 +81,7 @@ func _build_background() -> void:
 	quad.size  = _display_size
 
 	grid_mesh.mesh              = quad
+	mat.render_priority         = -10   # luôn render trước stroke
 	grid_mesh.material_override = mat
 
 func _build_collision() -> void:
@@ -105,6 +106,12 @@ func get_strokes_data() -> Array:
 func add_stroke(data: StrokeBuilder.StrokeData) -> void:
 	if data == null or data.mesh_inst == null:
 		return
+	# render_priority theo index trong plane này — độc lập với các plane khác
+	var priority := clampi(_strokes.size(), -127, 127)
+	for i in data.mesh_inst.get_surface_override_material_count():
+		var mat := data.mesh_inst.get_surface_override_material(i)
+		if mat: mat.render_priority = priority
+	data.render_order = priority
 	stroke_container.add_child(data.mesh_inst)
 	_strokes.append(data)
 
@@ -113,6 +120,15 @@ func erase_at(world_point: Vector3, stroke_builder: StrokeBuilder) -> void:
 	var radius  := (preset.brush_size if preset else 0.08) * 0.5
 	stroke_builder.erase_at(world_point, _strokes, radius)
 	_strokes = _strokes.filter(func(d): return not d.stamp_positions.is_empty())
+	# Reorder render_priority sau erase để thứ tự vẫn đúng
+	for i in _strokes.size():
+		var sd := _strokes[i] as StrokeBuilder.StrokeData
+		if sd == null or sd.mesh_inst == null: continue
+		var priority := clampi(i, -127, 127)
+		sd.render_order = priority
+		for j in sd.mesh_inst.get_surface_override_material_count():
+			var mat := sd.mesh_inst.get_surface_override_material(j)
+			if mat: mat.render_priority = priority
 
 func _build_surface_mesh(points: Array, up: Vector3, height: float) -> void:
 	var hh     := height * 0.5
@@ -144,8 +160,9 @@ func _build_surface_mesh(points: Array, up: Vector3, height: float) -> void:
 	amesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	_surface_solid              = MeshInstance3D.new()
 	_surface_solid.mesh          = amesh
+	mat.render_priority              = -10
 	_surface_solid.material_override = mat
-	_surface_solid.visible       = false   # ẩn cho đến khi set_active(true)
+	_surface_solid.visible           = false   # ẩn cho đến khi set_active(true)
 	add_child(_surface_solid)
 
 	var bmat := StandardMaterial3D.new()

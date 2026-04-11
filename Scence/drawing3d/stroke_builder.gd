@@ -123,13 +123,20 @@ func start_stroke(world_point: Vector3, hit_normal: Vector3 = Vector3.ZERO) -> v
 
 	_preview_rng.seed = _rng.seed
 
-	_append_stamps_for_segment(world_point, world_point, true, hit_normal)
-
 	if _preview_inst != null:
 		_preview_inst.queue_free()
 	_preview_inst           = MeshInstance3D.new()
-	_preview_inst.top_level = false   # follow stroke_container transform
+	_preview_inst.top_level = false
 	_parent.add_child(_preview_inst)
+
+	# Stamp đầu tiên tại điểm click
+	var sn_local  := _resolve_stamp_normal_local(hit_normal)
+	var pos_local := _to_local(world_point)
+	_preview_stamp_positions.append(pos_local)
+	_preview_stamp_normals.append(sn_local)
+	_append_stamp_verts(pos_local, sn_local, _preview_rng)
+	_preview_accumulated = 0.0
+	_flush_preview_mesh()
 
 func add_point(world_point: Vector3, hit_normal: Vector3 = Vector3.ZERO) -> void:
 	if _points.is_empty():
@@ -138,22 +145,14 @@ func add_point(world_point: Vector3, hit_normal: Vector3 = Vector3.ZERO) -> void
 		return
 	var prev = _points.back()
 	_points.append(world_point)
-	_append_stamps_for_segment(prev, world_point, false, hit_normal)
+	_append_stamps_for_segment(prev, world_point, hit_normal)
 	_flush_preview_mesh()
 
 # ── Stamp segment ─────────────────────────────────────────────
 func _append_stamps_for_segment(
-	from: Vector3, to: Vector3, is_first: bool,
+	from: Vector3, to: Vector3,
 	hit_normal: Vector3 = Vector3.ZERO
 ) -> void:
-	if is_first:
-		var sn_local := _resolve_stamp_normal_local(hit_normal)
-		var pos_local := _to_local(from)
-		_preview_stamp_positions.append(pos_local)
-		_preview_stamp_normals.append(sn_local)
-		_append_stamp_verts(pos_local, sn_local, _preview_rng)
-		return
-
 	var seg_len := from.distance_to(to)
 	if seg_len < 0.0001:
 		return
@@ -212,35 +211,34 @@ func _append_stamp_verts(
 		) * preset.scatter * size
 
 	var half_w := size * stamp_scale * 0.5
-	var half_d := half_w * thickness
 	var center := pos_local + scatter_offset
 
 	var cos_a := cos(stamp_angle)
 	var sin_a := sin(stamp_angle)
 	var r     := (pr * cos_a + pu * sin_a).normalized()
 	var u     := (pr * (-sin_a) + pu * cos_a).normalized()
-	var fwd   := pn
 
 	var col := Color(
 		current_color.r, current_color.g, current_color.b,
 		current_color.a * _preview_opacity * stamp_opacity
 	)
 
-	var ftl := center + u * half_w - r * half_w + fwd * half_d
-	var ftr := center + u * half_w + r * half_w + fwd * half_d
-	var fbl := center - u * half_w - r * half_w + fwd * half_d
-	var fbr := center - u * half_w + r * half_w + fwd * half_d
-	var btl := center + u * half_w - r * half_w - fwd * half_d
-	var btr := center + u * half_w + r * half_w - fwd * half_d
-	var bbl := center - u * half_w - r * half_w - fwd * half_d
-	var bbr := center - u * half_w + r * half_w - fwd * half_d
-
-	_add_quad(_preview_verts, _preview_normals, _preview_uvs, _preview_colors, fbl, fbr, ftr, ftl, fwd,  col)
-	_add_quad(_preview_verts, _preview_normals, _preview_uvs, _preview_colors, bbr, bbl, btl, btr, -fwd, col)
-	_add_quad(_preview_verts, _preview_normals, _preview_uvs, _preview_colors, ftl, ftr, btr, btl, u,    col)
-	_add_quad(_preview_verts, _preview_normals, _preview_uvs, _preview_colors, fbr, fbl, bbl, bbr, -u,   col)
-	_add_quad(_preview_verts, _preview_normals, _preview_uvs, _preview_colors, fbl, ftl, btl, bbl, -r,   col)
-	_add_quad(_preview_verts, _preview_normals, _preview_uvs, _preview_colors, fbr, bbr, btr, ftr, r,    col)
+	# Cross quad: 2 quad vuông góc nhau — nhìn từ góc nào cũng thấy
+	# Quad 1: nằm trên mặt plane (dùng r và u)
+	var tl1 := center + u * half_w - r * half_w
+	var tr1 := center + u * half_w + r * half_w
+	var bl1 := center - u * half_w - r * half_w
+	var br1 := center - u * half_w + r * half_w
+	_add_quad(_preview_verts, _preview_normals, _preview_uvs, _preview_colors, bl1, br1, tr1, tl1,  pn, col)
+	_add_quad(_preview_verts, _preview_normals, _preview_uvs, _preview_colors, br1, bl1, tl1, tr1, -pn, col)
+	# Quad 2: dựng đứng vuông góc với quad 1 (dùng pn và u)
+	var half_d := half_w * thickness
+	var tl2 := center + u * half_w - pn * half_d
+	var tr2 := center + u * half_w + pn * half_d
+	var bl2 := center - u * half_w - pn * half_d
+	var br2 := center - u * half_w + pn * half_d
+	_add_quad_side(_preview_verts, _preview_normals, _preview_uvs, _preview_colors, bl2, br2, tr2, tl2,  r, col)
+	_add_quad_side(_preview_verts, _preview_normals, _preview_uvs, _preview_colors, br2, bl2, tl2, tr2, -r, col)
 
 # ── Flush preview mesh ────────────────────────────────────────
 func _flush_preview_mesh() -> void:
@@ -254,20 +252,21 @@ func _flush_preview_mesh() -> void:
 	arrays[Mesh.ARRAY_COLOR]  = _preview_colors
 	var amesh := ArrayMesh.new()
 	amesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	var mat := _build_material(_preview_preset)
-	mat.render_priority = _stroke_counter + 1
-	_preview_inst.mesh              = amesh
-	_preview_inst.material_override = mat
+	var mat := _build_material(_preview_preset, _plane_normal)
+	# Preview luôn hiện trên stroke cuối của plane hiện tại
+	var preview_priority := 0
+	if _plane != null:
+		preview_priority = clampi(_plane._strokes.size(), -127, 127)
+	mat.render_priority = preview_priority
+	_preview_inst.mesh = amesh
+	_preview_inst.set_surface_override_material(0, mat)
 
 # ── Finish stroke ─────────────────────────────────────────────
 func finish_stroke() -> StrokeData:
-	if _points.size() < 2:
+	if _points.is_empty():
 		if _preview_inst:
 			_preview_inst.queue_free()
 			_preview_inst = null
-		_points.clear()
-		_preview_stamp_positions.clear()
-		_preview_stamp_normals.clear()
 		return null
 
 	var stamp_positions: Array[Vector3] = []
@@ -288,9 +287,7 @@ func finish_stroke() -> StrokeData:
 		_preview_inst.queue_free()
 		_preview_inst = null
 
-	_stroke_counter += 1
-	if mi.material_override:
-		mi.material_override.render_priority = _stroke_counter
+	# render_priority được set bởi DrawingPlane.add_stroke() theo index
 
 	# plane_right/up/normal lưu dưới dạng local-space direction
 	# (vì basis của _parent ≈ basis của plane, to_local chỉ translate)
@@ -331,10 +328,10 @@ func _bake_mesh_from_buffers() -> MeshInstance3D:
 	arrays[Mesh.ARRAY_COLOR]  = _preview_colors
 	var amesh := ArrayMesh.new()
 	amesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	var mi              := MeshInstance3D.new()
-	mi.mesh              = amesh
-	mi.material_override = _build_material(_preview_preset)
-	mi.top_level         = false   # follow stroke_container → follow DrawingPlane
+	var mi      := MeshInstance3D.new()
+	mi.mesh      = amesh
+	mi.top_level = false
+	mi.set_surface_override_material(0, _build_material(_preview_preset, _plane_normal))
 	return mi
 
 func cancel_stroke() -> void:
@@ -404,8 +401,7 @@ func erase_at(world_point: Vector3, strokes: Array, radius: float) -> void:
 				data_typed.opacity
 			)
 			if mi:
-				if mi.material_override:
-					mi.material_override.render_priority = data_typed.render_order
+				_set_render_priority(mi, data_typed.render_order)
 				data_typed.mesh_inst = mi
 				_parent.add_child(mi)
 
@@ -468,35 +464,31 @@ func _build_mesh_from_stamps_local(
 			) * preset.scatter * size
 
 		var half_w := size * stamp_scale * 0.5
-		var half_d := half_w * thickness
 		var center := pos_local + scatter_offset
 
 		var cos_a := cos(stamp_angle)
 		var sin_a := sin(stamp_angle)
 		var r     := (pr * cos_a + pu * sin_a).normalized()
 		var u     := (pr * (-sin_a) + pu * cos_a).normalized()
-		var fwd   := pn
 
 		var col := Color(
 			base_color.r, base_color.g, base_color.b,
 			base_color.a * opacity * stamp_opacity
 		)
 
-		var ftl = center + u * half_w - r * half_w + fwd * half_d
-		var ftr = center + u * half_w + r * half_w + fwd * half_d
-		var fbl = center - u * half_w - r * half_w + fwd * half_d
-		var fbr = center - u * half_w + r * half_w + fwd * half_d
-		var btl = center + u * half_w - r * half_w - fwd * half_d
-		var btr = center + u * half_w + r * half_w - fwd * half_d
-		var bbl = center - u * half_w - r * half_w - fwd * half_d
-		var bbr = center - u * half_w + r * half_w - fwd * half_d
-
-		_add_quad(verts, normals, uvs, colors, fbl, fbr, ftr, ftl, fwd,  col)
-		_add_quad(verts, normals, uvs, colors, bbr, bbl, btl, btr, -fwd, col)
-		_add_quad(verts, normals, uvs, colors, ftl, ftr, btr, btl, u,    col)
-		_add_quad(verts, normals, uvs, colors, fbr, fbl, bbl, bbr, -u,   col)
-		_add_quad(verts, normals, uvs, colors, fbl, ftl, btl, bbl, -r,   col)
-		_add_quad(verts, normals, uvs, colors, fbr, bbr, btr, ftr, r,    col)
+		var tl1 = center + u * half_w - r * half_w
+		var tr1 = center + u * half_w + r * half_w
+		var bl1 = center - u * half_w - r * half_w
+		var br1 = center - u * half_w + r * half_w
+		_add_quad(verts, normals, uvs, colors, bl1, br1, tr1, tl1,  pn, col)
+		_add_quad(verts, normals, uvs, colors, br1, bl1, tl1, tr1, -pn, col)
+		var half_d = half_w * thickness
+		var tl2 = center + u * half_w - pn * half_d
+		var tr2 = center + u * half_w + pn * half_d
+		var bl2 = center - u * half_w - pn * half_d
+		var br2 = center - u * half_w + pn * half_d
+		_add_quad_side(verts, normals, uvs, colors, bl2, br2, tr2, tl2,  r, col)
+		_add_quad_side(verts, normals, uvs, colors, br2, bl2, tl2, tr2, -r, col)
 
 	if verts.is_empty():
 		return null
@@ -511,10 +503,10 @@ func _build_mesh_from_stamps_local(
 	var amesh := ArrayMesh.new()
 	amesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 
-	var mi              := MeshInstance3D.new()
-	mi.mesh              = amesh
-	mi.material_override = _build_material(preset)
-	mi.top_level         = false   # follow parent → follow DrawingPlane
+	var mi      := MeshInstance3D.new()
+	mi.mesh      = amesh
+	mi.top_level = false
+	mi.set_surface_override_material(0, _build_material(preset, _plane_normal))
 	return mi
 
 # ── Helper: add 1 quad ────────────────────────────────────────
@@ -533,7 +525,34 @@ func _add_quad(
 	verts.append(tr);  normals.append(normal); uvs.append(Vector2(1,0)); colors.append(col)
 	verts.append(tl);  normals.append(normal); uvs.append(Vector2(0,0)); colors.append(col)
 
-func _build_material(preset: BrushPreset) -> ShaderMaterial:
+# UV.y += 2.0 → shader nhận ra đây là mặt cạnh → fade theo góc nghiêng
+func _add_quad_side(
+	verts:   PackedVector3Array,
+	normals: PackedVector3Array,
+	uvs:     PackedVector2Array,
+	colors:  PackedColorArray,
+	bl: Vector3, br: Vector3, tr: Vector3, tl: Vector3,
+	normal: Vector3, col: Color
+) -> void:
+	verts.append(bl);  normals.append(normal); uvs.append(Vector2(0,3)); colors.append(col)
+	verts.append(br);  normals.append(normal); uvs.append(Vector2(1,3)); colors.append(col)
+	verts.append(tr);  normals.append(normal); uvs.append(Vector2(1,2)); colors.append(col)
+	verts.append(bl);  normals.append(normal); uvs.append(Vector2(0,3)); colors.append(col)
+	verts.append(tr);  normals.append(normal); uvs.append(Vector2(1,2)); colors.append(col)
+	verts.append(tl);  normals.append(normal); uvs.append(Vector2(0,2)); colors.append(col)
+
+func _set_render_priority(mi: MeshInstance3D, priority: int) -> void:
+	var p := clampi(priority, -127, 127)
+	# depth_offset: mỗi stroke push về camera 0.0001 units
+	# đủ để override z-fighting trong plane, không đáng kể giữa các plane
+	var depth_off := -float(p) * 0.0001
+	for i in mi.get_surface_override_material_count():
+		var mat := mi.get_surface_override_material(i)
+		if mat:
+			mat.render_priority = p
+			mat.set_shader_parameter("depth_offset", depth_off)
+
+func _build_material(preset: BrushPreset, _unused: Vector3 = Vector3.ZERO) -> ShaderMaterial:
 	var mat   := ShaderMaterial.new()
 	mat.shader = _create_shader()
 	if preset and preset.brush_texture != null:
@@ -551,8 +570,19 @@ render_mode unshaded, cull_disabled, blend_mix;
 
 uniform sampler2D brush_tex : filter_linear_mipmap, repeat_disable, hint_default_white;
 uniform bool use_brush_tex  = false;
+// depth offset để stroke sau trong cùng plane đè stroke trước
+// giá trị nhỏ âm = push về phía camera, không ảnh hưởng depth giữa các plane
+uniform float depth_offset = 0.0;
+
+void vertex() {
+	// Shift depth nhẹ theo priority — chỉ đủ để override z-fighting trong plane
+	VERTEX.z += depth_offset;
+}
 
 void fragment() {
+	bool is_side = UV.y >= 2.0;
+	vec2 real_uv = is_side ? UV - vec2(0.0, 2.0) : UV;
+
 	vec3 c = COLOR.rgb;
 	vec3 linear_color = mix(
 		c / 12.92,
@@ -560,16 +590,21 @@ void fragment() {
 		step(0.04045, c)
 	);
 
-	float facing = abs(dot(normalize(NORMAL), vec3(0.0, 0.0, 1.0)));
-	if (facing < 0.15) discard;
-	float face_alpha = smoothstep(0.15, 0.5, facing);
-
-	float alpha = COLOR.a * face_alpha;
+	float tex_alpha = 1.0;
 	if (use_brush_tex) {
-		vec4  brush    = texture(brush_tex, UV);
+		vec4  brush    = texture(brush_tex, real_uv);
 		float lum      = dot(brush.rgb, vec3(0.299, 0.587, 0.114));
-		float darkness = 1.0 - lum;
-		alpha *= darkness * brush.a;
+		tex_alpha = (1.0 - lum) * brush.a;
+	}
+
+	float alpha;
+	if (is_side) {
+		float facing    = abs(dot(NORMAL, VIEW));
+		float side_fade = smoothstep(0.3, 0.7, facing);
+		if (side_fade < 0.01) discard;
+		alpha = COLOR.a * side_fade * tex_alpha;
+	} else {
+		alpha = COLOR.a * tex_alpha;
 	}
 
 	ALBEDO = linear_color;
