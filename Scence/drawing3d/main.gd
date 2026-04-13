@@ -233,7 +233,7 @@ func _finish_stroke() -> void:
 		return
 	var data := stroke_builder.finish_stroke()
 	if data and _active_plane:
-		_active_plane.add_stroke(data)
+		_active_plane.add_stroke(data, stroke_builder)
 
 # ─── Erase ────────────────────────────────────────────────────
 func _do_erase(screen_pos: Vector2) -> void:

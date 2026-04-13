@@ -57,28 +57,34 @@ Button/colors/font_pressed_color = Color(0.007843138, 0.007843138, 0.011764706, 
 Label/colors/font_color = Color(0.18039216, 0.18039216, 0.21960784, 1)
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_54aju"]
-bg_color = Color(0, 0, 0, 1)
+bg_color = Color(0.29411766, 0.43137255, 0.56078434, 1)
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_b8dct"]
-bg_color = Color(1, 1, 1, 1)
+bg_color = Color(0.85882354, 0.36078432, 0.27058825, 1)
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_vd3w6"]
-bg_color = Color(0.8980392, 0.101960786, 0.101960786, 1)
+bg_color = Color(0.9490196, 0.80784315, 0.43137255, 1)
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_ii0ua"]
-bg_color = Color(0.101960786, 0.54901963, 0.8980392, 1)
+bg_color = Color(0.11372549, 0.16470589, 0.20784314, 1)
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_3nkhc"]
-bg_color = Color(0.14901961, 0.72156864, 0.3529412, 1)
+bg_color = Color(0.7411765, 0.22745098, 0.22745098, 1)
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_q38a5"]
-bg_color = Color(1, 0.7490196, 0, 1)
+bg_color = Color(0.23921569, 0.3647059, 0.6, 1)
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_w5gym"]
-bg_color = Color(0.7019608, 0.3019608, 0.8980392, 1)
+bg_color = Color(0.3019608, 0.47843137, 0.40784314, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_yg0ni"]
+bg_color = Color(0.84705883, 0.8509804, 0.80784315, 1)
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_680cc"]
-bg_color = Color(0.9490196, 0.49803922, 0.101960786, 1)
+bg_color = Color(0.9372549, 0.9529412, 0.95686275, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_55f2s"]
+bg_color = Color(0.101960786, 0.14509805, 0.1882353, 1)
 
 [node name="BrushPanel" type="Control" unique_id=891204932]
 custom_minimum_size = Vector2(200, 0)
@@ -300,4 +306,14 @@ theme_override_styles/normal = SubResource("StyleBoxFlat_w5gym")
 [node name="Button8" type="Button" parent="PanelContainer/ScrollContainer/MainVBox/SectionColor/QuickPalette" unique_id=130902765]
 custom_minimum_size = Vector2(18, 18)
 layout_mode = 2
+theme_override_styles/normal = SubResource("StyleBoxFlat_yg0ni")
+
+[node name="Button9" type="Button" parent="PanelContainer/ScrollContainer/MainVBox/SectionColor/QuickPalette" unique_id=1414955179]
+custom_minimum_size = Vector2(18, 18)
+layout_mode = 2
 theme_override_styles/normal = SubResource("StyleBoxFlat_680cc")
+
+[node name="Button10" type="Button" parent="PanelContainer/ScrollContainer/MainVBox/SectionColor/QuickPalette" unique_id=485156908]
+custom_minimum_size = Vector2(18, 18)
+layout_mode = 2
+theme_override_styles/normal = SubResource("StyleBoxFlat_55f2s")

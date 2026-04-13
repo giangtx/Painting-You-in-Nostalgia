@@ -63,14 +63,18 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_RIGHT:
 			_is_orbiting = event.pressed
+			if event.pressed and _is_snapping:
+				_is_snapping = false          # ← INTERRUPT snap ngay khi nhấn chuột
 			_last_mouse = event.position
 
 		# Bắt đầu / kết thúc pan (MMB)
 		elif event.button_index == MOUSE_BUTTON_MIDDLE:
 			_is_panning = event.pressed
+			if event.pressed and _is_snapping:
+				_is_snapping = false          # ← INTERRUPT snap
 			_last_mouse = event.position
 
-		# Zoom bằng scroll
+		# Zoom bằng scroll (không ảnh hưởng snapping)
 		elif event.button_index == MOUSE_BUTTON_WHEEL_UP:
 			_distance = clampf(_distance - zoom_speed, min_zoom, max_zoom)
 			if projection == Camera3D.PROJECTION_ORTHOGONAL:
@@ -84,31 +88,31 @@ func _input(event: InputEvent) -> void:
 
 	# --- Orbit & Pan khi kéo chuột ---
 	if event is InputEventMouseMotion:
+		# Nếu đang snap mà user kéo chuột → hủy snap ngay lập tức (UX mượt)
+		if _is_snapping:
+			_is_snapping = false
+
 		var delta = event.position - _last_mouse
 		_last_mouse = event.position
 
 		if _is_orbiting:
-			_yaw   -= delta.x * orbit_speed * 57.2958  # rad → degree
+			_yaw -= delta.x * orbit_speed * 57.2958
 			_pitch -= delta.y * orbit_speed * 57.2958
-			#_pitch = clampf(_pitch, -89.9, 89.9)  # thay vì -89.0, 89.0
+			# _pitch = clampf(_pitch, -89.9, 89.9)  # bạn đã comment, nên mở lại nếu muốn
 			_apply_transform()
 
 		elif _is_panning:
-			# Pan dọc theo right và up của camera
 			var right = global_basis.x
-			var up    = global_basis.y
+			var up = global_basis.y
 			var delta_world = -right * delta.x * pan_speed * _distance * 0.1 \
-							  + up    * delta.y * pan_speed * _distance * 0.1
+				+ up * delta.y * pan_speed * _distance * 0.1
+
 			if active_plane != null:
-				# Neo pivot — chỉ cho trượt dọc theo mặt plane, không ra ngoài
 				var plane_normal := -active_plane.global_basis.z
-				# Loại bỏ thành phần vuông góc với plane (không cho pan ra xa)
 				delta_world -= plane_normal * delta_world.dot(plane_normal)
+
 			_pivot += delta_world
 			_apply_transform()
-	if event is InputEventKey and event.pressed and not event.echo:
-		if event.keycode == KEY_KP_5 or event.keycode == KEY_5:
-			_toggle_projection()
 
 # Tính lại vị trí & hướng camera từ _pivot, _yaw, _pitch, _distance
 func _apply_transform() -> void:

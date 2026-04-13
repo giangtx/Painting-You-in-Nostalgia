@@ -223,22 +223,41 @@ func _append_stamp_verts(
 		current_color.a * _preview_opacity * stamp_opacity
 	)
 
-	# Cross quad: 2 quad vuông góc nhau — nhìn từ góc nào cũng thấy
-	# Quad 1: nằm trên mặt plane (dùng r và u)
+	# --- Quad 1: Nằm ngang (dùng trục r và u) ---
+	# Pháp tuyến (normal) hướng theo pn
 	var tl1 := center + u * half_w - r * half_w
 	var tr1 := center + u * half_w + r * half_w
 	var bl1 := center - u * half_w - r * half_w
 	var br1 := center - u * half_w + r * half_w
 	_add_quad(_preview_verts, _preview_normals, _preview_uvs, _preview_colors, bl1, br1, tr1, tl1,  pn, col)
+	# Nếu cần Quad 1 cũng thấy được từ bên dưới, bạn mở comment dòng này:
 	_add_quad(_preview_verts, _preview_normals, _preview_uvs, _preview_colors, br1, bl1, tl1, tr1, -pn, col)
-	# Quad 2: dựng đứng vuông góc với quad 1 (dùng pn và u)
+
+
 	var half_d := half_w * thickness
+
+	# --- Quad 2: Dựng đứng (dùng trục u và pn) ---
+	# Vuông góc với Quad 1. Pháp tuyến hướng theo r.
 	var tl2 := center + u * half_w - pn * half_d
 	var tr2 := center + u * half_w + pn * half_d
 	var bl2 := center - u * half_w - pn * half_d
 	var br2 := center - u * half_w + pn * half_d
+	
+	# Vẽ 2 mặt trước/sau để không bị tàng hình khi xoay camera
 	_add_quad_side(_preview_verts, _preview_normals, _preview_uvs, _preview_colors, bl2, br2, tr2, tl2,  r, col)
 	_add_quad_side(_preview_verts, _preview_normals, _preview_uvs, _preview_colors, br2, bl2, tl2, tr2, -r, col)
+
+
+	# --- Quad 3: Dựng đứng chéo (dùng trục r và pn) ---
+	# Vuông góc với CẢ Quad 1 và Quad 2. Pháp tuyến hướng theo u.
+	var tl3 := center + r * half_w - pn * half_d
+	var tr3 := center + r * half_w + pn * half_d
+	var bl3 := center - r * half_w - pn * half_d
+	var br3 := center - r * half_w + pn * half_d
+	
+	# Vẽ 2 mặt trước/sau cho Quad 3
+	_add_quad_side(_preview_verts, _preview_normals, _preview_uvs, _preview_colors, bl3, br3, tr3, tl3,  u, col)
+	_add_quad_side(_preview_verts, _preview_normals, _preview_uvs, _preview_colors, br3, bl3, tl3, tr3, -u, col)
 
 # ── Flush preview mesh ────────────────────────────────────────
 func _flush_preview_mesh() -> void:
@@ -258,6 +277,7 @@ func _flush_preview_mesh() -> void:
 	if _plane != null:
 		preview_priority = clampi(_plane._strokes.size(), -127, 127)
 	mat.render_priority = preview_priority
+	mat.set_shader_parameter("depth_offset", -float(preview_priority) * 0.01)
 	_preview_inst.mesh = amesh
 	_preview_inst.set_surface_override_material(0, mat)
 
@@ -476,19 +496,33 @@ func _build_mesh_from_stamps_local(
 			base_color.a * opacity * stamp_opacity
 		)
 
+		# --- Quad 1: Nằm ngang (trục r và u) ---
 		var tl1 = center + u * half_w - r * half_w
 		var tr1 = center + u * half_w + r * half_w
 		var bl1 = center - u * half_w - r * half_w
 		var br1 = center - u * half_w + r * half_w
+		# Ở đây bạn đã bật vẽ cả mặt trên (pn) và mặt dưới (-pn) rồi, rất tốt
 		_add_quad(verts, normals, uvs, colors, bl1, br1, tr1, tl1,  pn, col)
 		_add_quad(verts, normals, uvs, colors, br1, bl1, tl1, tr1, -pn, col)
+		
 		var half_d = half_w * thickness
+		
+		# --- Quad 2: Dựng đứng (trục u và pn) ---
 		var tl2 = center + u * half_w - pn * half_d
 		var tr2 = center + u * half_w + pn * half_d
 		var bl2 = center - u * half_w - pn * half_d
 		var br2 = center - u * half_w + pn * half_d
 		_add_quad_side(verts, normals, uvs, colors, bl2, br2, tr2, tl2,  r, col)
 		_add_quad_side(verts, normals, uvs, colors, br2, bl2, tl2, tr2, -r, col)
+
+		# --- Quad 3: Dựng đứng chéo (trục r và pn) ---
+		# Bổ sung thêm Quad 3 vuông góc với 2 mặt trên
+		var tl3 = center + r * half_w - pn * half_d
+		var tr3 = center + r * half_w + pn * half_d
+		var bl3 = center - r * half_w - pn * half_d
+		var br3 = center - r * half_w + pn * half_d
+		_add_quad_side(verts, normals, uvs, colors, bl3, br3, tr3, tl3,  u, col)
+		_add_quad_side(verts, normals, uvs, colors, br3, bl3, tl3, tr3, -u, col)
 
 	if verts.is_empty():
 		return null
@@ -541,18 +575,12 @@ func _add_quad_side(
 	verts.append(tr);  normals.append(normal); uvs.append(Vector2(1,2)); colors.append(col)
 	verts.append(tl);  normals.append(normal); uvs.append(Vector2(0,2)); colors.append(col)
 
-func _set_render_priority(mi: MeshInstance3D, priority: int) -> void:
-	var p := clampi(priority, -127, 127)
-	# depth_offset: mỗi stroke push về camera 0.0001 units
-	# đủ để override z-fighting trong plane, không đáng kể giữa các plane
-	var depth_off := -float(p) * 0.0001
-	for i in mi.get_surface_override_material_count():
-		var mat := mi.get_surface_override_material(i)
-		if mat:
-			mat.render_priority = p
-			mat.set_shader_parameter("depth_offset", depth_off)
+func _set_render_priority(_mi: MeshInstance3D, _priority: int) -> void:
+	# Deprecated: depth_offset và render_priority nay được quản lý tập trung
+	# tại DrawingPlane._apply_depth_offset(). Giữ hàm này để tránh lỗi call site.
+	pass
 
-func _build_material(preset: BrushPreset, _unused: Vector3 = Vector3.ZERO) -> ShaderMaterial:
+func _build_material(preset: BrushPreset, plane_normal: Vector3 = Vector3.ZERO) -> ShaderMaterial:
 	var mat   := ShaderMaterial.new()
 	mat.shader = _create_shader()
 	if preset and preset.brush_texture != null:
@@ -560,55 +588,53 @@ func _build_material(preset: BrushPreset, _unused: Vector3 = Vector3.ZERO) -> Sh
 		mat.set_shader_parameter("use_brush_tex", true)
 	else:
 		mat.set_shader_parameter("use_brush_tex", false)
+	# Truyền normal của plane để shader push theo hướng cố định — không phụ thuộc face normal
+	mat.set_shader_parameter("plane_normal", plane_normal)
 	return mat
 
 func _create_shader() -> Shader:
 	var s  := Shader.new()
 	s.code  = """
 shader_type spatial;
-render_mode unshaded, cull_disabled, blend_mix;
+render_mode unshaded, cull_disabled, depth_prepass_alpha;
 
 uniform sampler2D brush_tex : filter_linear_mipmap, repeat_disable, hint_default_white;
 uniform bool use_brush_tex  = false;
-// depth offset để stroke sau trong cùng plane đè stroke trước
-// giá trị nhỏ âm = push về phía camera, không ảnh hưởng depth giữa các plane
-uniform float depth_offset = 0.0;
+uniform vec3 plane_normal   = vec3(0.0, 0.0, 1.0);
+uniform float depth_offset      = 0.0;
+uniform float offset_multiplier = 0.01;
 
 void vertex() {
-	// Shift depth nhẹ theo priority — chỉ đủ để override z-fighting trong plane
-	VERTEX.z += depth_offset;
+	 VERTEX += NORMAL * depth_offset * offset_multiplier;
 }
-
 void fragment() {
 	bool is_side = UV.y >= 2.0;
 	vec2 real_uv = is_side ? UV - vec2(0.0, 2.0) : UV;
 
-	vec3 c = COLOR.rgb;
+	vec3 c =  COLOR.rgb;
 	vec3 linear_color = mix(
 		c / 12.92,
 		pow((c + 0.055) / 1.055, vec3(2.4)),
 		step(0.04045, c)
 	);
-
 	float tex_alpha = 1.0;
 	if (use_brush_tex) {
 		vec4  brush    = texture(brush_tex, real_uv);
 		float lum      = dot(brush.rgb, vec3(0.299, 0.587, 0.114));
 		tex_alpha = (1.0 - lum) * brush.a;
 	}
-
 	float alpha;
 	if (is_side) {
-		float facing    = abs(dot(NORMAL, VIEW));
-		float side_fade = smoothstep(0.3, 0.7, facing);
-		if (side_fade < 0.01) discard;
-		alpha = COLOR.a * side_fade * tex_alpha;
+	    float facing = abs(dot(NORMAL, VIEW));
+	    // Chỉ hiện khi nhìn gần như đối diện hoàn toàn
+	    if (facing < 0.95) discard;
+	    float side_fade = smoothstep(0.9, 1.0, facing);
+	    alpha = COLOR.a * side_fade * tex_alpha;
 	} else {
 		alpha = COLOR.a * tex_alpha;
 	}
-
 	ALBEDO = linear_color;
-	ALPHA  = clamp(alpha, 0.0, 1.0);
+	ALPHA  = clamp(COLOR.a * tex_alpha, 0.0, 1.0);
 }
 """
 	return s

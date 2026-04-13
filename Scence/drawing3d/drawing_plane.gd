@@ -22,9 +22,9 @@ var _surface_solid:  MeshInstance3D = null
 var _surface_border: MeshInstance3D = null
 
 # Màu bình thường và màu highlight
-const COLOR_NORMAL    := Color(0.4, 0.6, 1.0, 0.15)
+const COLOR_NORMAL    := Color(0.4, 0.6, 1.0, 0.255)
 const COLOR_HIGHLIGHT := Color(0.9, 0.75, 0.2, 0.45)
-const GRID_COLOR_NORMAL    := Color(1.0, 1.0, 1.0, 0.08)
+const GRID_COLOR_NORMAL    := Color(0.4, 0.6, 1.0, 0.255)
 const GRID_COLOR_HIGHLIGHT := Color(0.9, 0.75, 0.2, 0.35)
 
 var has_strokes: bool:
@@ -103,17 +103,105 @@ func get_init_data() -> Dictionary:
 func get_strokes_data() -> Array:
 	return _strokes.duplicate()  # shallow copy của array, StrokeData objects vẫn shared
 
-func add_stroke(data: StrokeBuilder.StrokeData) -> void:
+const COLOR_SIMILARITY_THRESHOLD := 0.05
+
+func _colors_similar(a: Color, b: Color) -> bool:
+	return (
+		absf(a.r - b.r) < COLOR_SIMILARITY_THRESHOLD and
+		absf(a.g - b.g) < COLOR_SIMILARITY_THRESHOLD and
+		absf(a.b - b.b) < COLOR_SIMILARITY_THRESHOLD
+	)
+
+func add_stroke(data: StrokeBuilder.StrokeData, stroke_builder: StrokeBuilder = null) -> void:
 	if data == null or data.mesh_inst == null:
 		return
-	# render_priority theo index trong plane này — độc lập với các plane khác
+
+	if stroke_builder != null:
+		_apply_clip_to_existing(data)
+
 	var priority := clampi(_strokes.size(), -127, 127)
-	for i in data.mesh_inst.get_surface_override_material_count():
-		var mat := data.mesh_inst.get_surface_override_material(i)
-		if mat: mat.render_priority = priority
 	data.render_order = priority
+	_apply_depth_offset(data.mesh_inst, priority)
 	stroke_container.add_child(data.mesh_inst)
 	_strokes.append(data)
+
+# Với mỗi stroke cũ khác màu, tính các stamp mới nào che phủ hoàn toàn stamp cũ
+# rồi set clip_zones uniform để shader discard vùng bị che — không rebuild mesh.
+func _apply_clip_to_existing(new_data: StrokeBuilder.StrokeData) -> void:
+	var new_color := new_data.color
+	var new_r     := new_data.brush_size * 0.5
+	var new_r_sq  := new_r * new_r
+
+	for sd in _strokes:
+		var old := sd as StrokeBuilder.StrokeData
+		if old == null or old.mesh_inst == null:
+			continue
+		if _colors_similar(old.color, new_color):
+			continue
+
+		var old_r       := old.brush_size * 0.5
+		var interact_r  := new_r + old_r
+		var interact_sq := interact_r * interact_r
+
+		# Thu thập clip zones: stamp mới nào che hoàn toàn ít nhất 1 stamp cũ
+		# → dùng sample-point test (9 điểm) giống logic trước
+		var clip_centers: Array[Vector3] = []
+
+		for i in old.stamp_positions.size():
+			var old_pos := old.stamp_positions[i]
+
+			var nearby: Array[Vector3] = []
+			for new_pos in new_data.stamp_positions:
+				if (old_pos - new_pos).length_squared() < interact_sq:
+					nearby.append(new_pos)
+			if nearby.is_empty():
+				continue
+
+			# Build local 2D axes
+			var pn: Vector3 = Vector3(0, 0, -1)
+			if old.stamp_normals.size() == old.stamp_positions.size():
+				pn = old.stamp_normals[i].normalized()
+			var ref_up := Vector3.UP if absf(pn.dot(Vector3.UP)) < 0.9 else Vector3.RIGHT
+			var pr     := ref_up.cross(pn).normalized()
+			var pu     := pn.cross(pr).normalized()
+
+			const ANGLES := [0.0, 0.785, 1.571, 2.356, 3.142, 3.927, 4.712, 5.498]
+			var samples: Array[Vector3] = [old_pos]
+			for angle in ANGLES:
+				samples.append(old_pos + (pr * cos(angle) + pu * sin(angle)) * old_r * 0.9)
+
+			var fully_covered := true
+			for sp in samples:
+				var covered := false
+				for new_pos in nearby:
+					if (sp - new_pos).length_squared() < new_r_sq:
+						covered = true
+						break
+				if not covered:
+					fully_covered = false
+					break
+
+			if fully_covered:
+				clip_centers.append(old_pos)
+
+		if clip_centers.is_empty():
+			continue
+
+		# Set clip_zones uniform trên tất cả surface của mesh cũ
+		# Mỗi zone là vec4(center.xyz, radius)
+		var zones := PackedVector4Array()
+		var limit  := mini(clip_centers.size(), 64)
+		for i in limit:
+			var c := clip_centers[i]
+			zones.append(Vector4(c.x, c.y, c.z, new_r))
+
+		for s_idx in old.mesh_inst.get_surface_override_material_count():
+			var mat := old.mesh_inst.get_surface_override_material(s_idx)
+			if mat is ShaderMaterial:
+				var sm := mat as ShaderMaterial
+				sm.set_shader_parameter("clip_zones",  zones)
+				sm.set_shader_parameter("clip_count",  limit)
+				sm.set_shader_parameter("clip_radius", new_r)
 
 func erase_at(world_point: Vector3, stroke_builder: StrokeBuilder) -> void:
 	var preset  := stroke_builder.get_current_preset()
@@ -126,9 +214,18 @@ func erase_at(world_point: Vector3, stroke_builder: StrokeBuilder) -> void:
 		if sd == null or sd.mesh_inst == null: continue
 		var priority := clampi(i, -127, 127)
 		sd.render_order = priority
-		for j in sd.mesh_inst.get_surface_override_material_count():
-			var mat := sd.mesh_inst.get_surface_override_material(j)
-			if mat: mat.render_priority = priority
+		_apply_depth_offset(sd.mesh_inst, priority)
+
+# Áp dụng render_priority + depth_offset cho mesh của một stroke.
+# depth_offset âm → push theo chiều plane_normal về phía camera
+func _apply_depth_offset(mi: MeshInstance3D, priority: int) -> void:
+	var depth_off := -float(priority) * 0.01
+	for i in mi.get_surface_override_material_count():
+		var mat := mi.get_surface_override_material(i)
+		if mat:
+			mat.render_priority = priority
+			if mat is ShaderMaterial:
+				(mat as ShaderMaterial).set_shader_parameter("depth_offset", depth_off)
 
 func _build_surface_mesh(points: Array, up: Vector3, height: float) -> void:
 	var hh     := height * 0.5

@@ -1,0 +1,32 @@
+[gd_scene format=3 uid="uid://bvw5nr8m16moe"]
+
+[ext_resource type="Shader" uid="uid://b1b3as6aj04y2" path="res://test/test2.gdshader" id="1_e66lm"]
+[ext_resource type="Texture2D" uid="uid://d23b23p7re353" path="res://Assets/BrushPng/dry-brush-stroke-18.png" id="2_wto88"]
+[ext_resource type="Texture2D" uid="uid://bal3bsw7o3ddu" path="res://Assets/BrushPng/black-watercolor-brush-stroke-2-4.png" id="3_1vbpq"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_wto88"]
+render_priority = 0
+shader = ExtResource("1_e66lm")
+shader_parameter/albedo_color = Color(0.56020737, 0.30312204, 0.68832296, 1)
+shader_parameter/brush_tex = ExtResource("2_wto88")
+
+[sub_resource type="QuadMesh" id="QuadMesh_eaakf"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_1vbpq"]
+render_priority = 0
+shader = ExtResource("1_e66lm")
+shader_parameter/albedo_color = Color(1, 0, 0, 1)
+shader_parameter/brush_tex = ExtResource("3_1vbpq")
+
+[sub_resource type="QuadMesh" id="QuadMesh_e66lm"]
+
+[node name="Test2" type="Node3D" unique_id=65866448]
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=1867816804]
+material_override = SubResource("ShaderMaterial_wto88")
+mesh = SubResource("QuadMesh_eaakf")
+
+[node name="MeshInstance3D2" type="MeshInstance3D" parent="." unique_id=1205636649]
+transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, 0, 0, 0)
+material_override = SubResource("ShaderMaterial_1vbpq")
+mesh = SubResource("QuadMesh_e66lm")

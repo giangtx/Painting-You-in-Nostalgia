@@ -1,0 +1,151 @@
+[gd_scene format=3 uid="uid://dc8fevkm2065s"]
+
+[sub_resource type="GDScript" id="GDScript_yr2l0"]
+script/source = "# depth_offset_test.gd
+# TEST SCENE: Debug depth offset với 2 planes vuông góc
+# Attach vào Node3D root của scene test
+
+extends Node3D
+
+# ══════════════════════════════════════════════════════════════
+# CONFIGURATION
+# ══════════════════════════════════════════════════════════════
+
+@export var plane_size: float = 5.0
+@export var depth_offset_increment: float = 1.0
+@export var shader_multiplier: float = 0.01  # Hệ số nhân trong shader
+
+# Camera orbit
+var _camera: Camera3D
+var _yaw: float = 45.0
+var _pitch: float = -30.0
+var _distance: float = 10.0
+var _is_orbiting: bool = false
+var _last_mouse: Vector2
+
+# Test planes
+var _plane_red: MeshInstance3D
+var _plane_black: MeshInstance3D
+var _plane_blue: MeshInstance3D
+# ══════════════════════════════════════════════════════════════
+# SETUP
+# ══════════════════════════════════════════════════════════════
+
+func _ready() -> void:
+	_setup_camera()
+	_setup_planes()
+
+func _setup_camera() -> void:
+	_camera = Camera3D.new()
+	add_child(_camera)
+	_update_camera_transform()
+
+func _setup_planes() -> void:
+	# ═══════════════════════════════════════════════════════════
+	# PLANE 1: ĐỎ - Vertical (depth_offset = 0)
+	# ═══════════════════════════════════════════════════════════
+	_plane_red = MeshInstance3D.new()
+	var quad_red = QuadMesh.new()
+	quad_red.size = Vector2(plane_size, plane_size)
+	_plane_red.mesh = quad_red
+	add_child(_plane_red)
+	
+	# Material với depth_offset = 0
+	var mat_red = _create_test_material(Color.RED, 0.0)
+	_plane_red.material_override = mat_red
+	
+	_plane_blue = MeshInstance3D.new()
+	var quad_blue = QuadMesh.new()
+	quad_blue.size = Vector2(plane_size, plane_size)
+	_plane_blue.mesh = quad_blue
+	_plane_blue.position = Vector3(0.0, 0.25, 0.0)
+	add_child(_plane_blue)
+	
+	# Material với depth_offset = 0
+	var mat_blue = _create_test_material(Color.BLUE, 0.01)
+	_plane_blue.material_override = mat_blue
+	
+	# ═══════════════════════════════════════════════════════════
+	# PLANE 2: ĐEN - Horizontal, rotated 90° (depth_offset = 1)
+	# ═══════════════════════════════════════════════════════════
+	_plane_black = MeshInstance3D.new()
+	var quad_black = QuadMesh.new()
+	quad_black.size = Vector2(plane_size, plane_size)
+	_plane_black.mesh = quad_black
+	add_child(_plane_black)
+	
+	# Rotate 90° around X axis (nằm ngang)
+	_plane_black.rotation_degrees = Vector3(90, 0, 0)
+	
+	# Material với depth_offset = 1
+	var mat_black = _create_test_material(Color.BLACK, depth_offset_increment)
+	_plane_black.material_override = mat_black
+
+func _create_test_material(color: Color, depth_offset: float) -> ShaderMaterial:
+	var mat = ShaderMaterial.new()
+	mat.shader = _create_depth_shader()
+	mat.set_shader_parameter(\"albedo_color\", color)
+	mat.set_shader_parameter(\"depth_offset\", depth_offset)
+	mat.set_shader_parameter(\"offset_multiplier\", shader_multiplier)
+	return mat
+
+func _create_depth_shader() -> Shader:
+	var shader = Shader.new()
+	shader.code = \"\"\"
+shader_type spatial;
+render_mode unshaded, cull_disabled;
+
+uniform vec4 albedo_color : source_color = vec4(1.0, 0.0, 0.0, 1.0);
+
+void fragment() {
+    ALBEDO = albedo_color.rgb;
+	ALPHA = albedo_color.a;
+	ALPHA_SCISSOR_THRESHOLD = 1.0;
+}
+\"\"\"
+	return shader
+
+func _input(event: InputEvent) -> void:
+	# Camera orbit
+	if event is InputEventMouseButton:
+		if event.button_index == MOUSE_BUTTON_LEFT:
+			_is_orbiting = event.pressed
+			_last_mouse = event.position
+		elif event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			_distance = clampf(_distance - 1.0, 2.0, 30.0)
+			_update_camera_transform()
+		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			_distance = clampf(_distance + 1.0, 2.0, 30.0)
+			_update_camera_transform()
+	
+	if event is InputEventMouseMotion and _is_orbiting:
+		var delta = event.position - _last_mouse
+		_last_mouse = event.position
+		_yaw -= delta.x * 0.3
+		_pitch -= delta.y * 0.3
+		_pitch = clampf(_pitch, -89.0, 89.0)
+		_update_camera_transform()
+
+func _update_camera_transform() -> void:
+	if not _camera:
+		return
+	
+	var yaw_rad = deg_to_rad(_yaw)
+	var pitch_rad = deg_to_rad(_pitch)
+	
+	var offset = Vector3(
+		_distance * cos(pitch_rad) * sin(yaw_rad),
+		_distance * sin(pitch_rad),
+		_distance * cos(pitch_rad) * cos(yaw_rad)
+	)
+	
+	_camera.global_position = offset
+	_camera.look_at(Vector3.ZERO, Vector3.UP)
+
+func _process(_delta: float) -> void:
+	# Optional: Draw debug info
+	pass
+"
+
+[node name="Test" type="Node3D" unique_id=38647829]
+script = SubResource("GDScript_yr2l0")

@@ -25,7 +25,7 @@ sky_material = SubResource("ProceduralSkyMaterial_equ5b")
 
 [sub_resource type="Environment" id="Environment_wywpm"]
 background_mode = 1
-background_color = Color(0.79799736, 0.8044658, 0.9078169, 1)
+background_color = Color(1, 1, 1, 1)
 sky = SubResource("Sky_spliw")
 tonemap_mode = 2
 glow_enabled = true
@@ -172,6 +172,16 @@ thickness = 0.15
 angle_jitter = 0.9
 metadata/_custom_type_script = "uid://2nxeo13oc7br"
 
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ctevo"]
+albedo_color = Color(1, 0.5254902, 0.31764707, 1)
+
+[sub_resource type="BoxMesh" id="BoxMesh_np5a2"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_np5a2"]
+albedo_color = Color(0.2901961, 1, 1, 1)
+
+[sub_resource type="BoxMesh" id="BoxMesh_dhiih"]
+
 [node name="Drawing3d" type="Node3D" unique_id=1782563195]
 script = ExtResource("1_sagqa")
 
@@ -273,3 +283,12 @@ layer = 10
 
 [node name="BrushPanel" parent="CanvasLayer" unique_id=891204932 instance=ExtResource("10_k0w1e")]
 offset_right = 200.0
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=854669850]
+material_override = SubResource("StandardMaterial3D_ctevo")
+mesh = SubResource("BoxMesh_np5a2")
+
+[node name="MeshInstance3D2" type="MeshInstance3D" parent="." unique_id=2130870560]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -4.2180996)
+material_override = SubResource("StandardMaterial3D_np5a2")
+mesh = SubResource("BoxMesh_dhiih")
