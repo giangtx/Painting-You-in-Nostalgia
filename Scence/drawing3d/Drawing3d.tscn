@@ -8,13 +8,7 @@
 [ext_resource type="Script" uid="uid://d1nxgnje8gva6" path="res://Scence/drawing3d/guide_drawer.gd" id="5_df3d8"]
 [ext_resource type="Script" uid="uid://dyeno4mscc7xc" path="res://Scence/drawing3d/stroke_builder.gd" id="7_y55qp"]
 [ext_resource type="Script" uid="uid://2nxeo13oc7br" path="res://Scence/drawing3d/brush_preset.gd" id="8_6krxa"]
-[ext_resource type="Texture2D" uid="uid://d23b23p7re353" path="res://Assets/BrushPng/dry-brush-stroke-18.png" id="9_diqqf"]
-[ext_resource type="Texture2D" uid="uid://bggj1maff2ygl" path="res://Assets/BrushPng/6-red-watercolor-brush-stroke-square-5.png" id="9_qv3s4"]
 [ext_resource type="PackedScene" uid="uid://blyvxrcuoxpe8" path="res://Scence/drawing3d/UI/BrushPanel.tscn" id="10_k0w1e"]
-[ext_resource type="Texture2D" uid="uid://bal3bsw7o3ddu" path="res://Assets/BrushPng/black-watercolor-brush-stroke-2-4.png" id="10_qv3s4"]
-[ext_resource type="Texture2D" uid="uid://cnuw0dfue0y8u" path="res://Assets/BrushPng/grey-paint-brush-stroke-18.png" id="12_ctevo"]
-[ext_resource type="Texture2D" uid="uid://dvpmoedqqm2ec" path="res://Assets/BrushPng/watercolor-brush-texture-7.png" id="13_np5a2"]
-[ext_resource type="Texture2D" uid="uid://cltxohtgrk8jr" path="res://Assets/BrushPng/watercolor-brush-texture-8.png" id="14_dhiih"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_equ5b"]
 sky_horizon_color = Color(0.66224277, 0.6717428, 0.6867428, 1)
@@ -120,67 +114,24 @@ noise = SubResource("FastNoiseLite_cyolj")
 [sub_resource type="Resource" id="Resource_qv3s4"]
 script = ExtResource("8_6krxa")
 brush_name = "Pencil"
-brush_texture = ExtResource("9_diqqf")
-brush_size = 1.0
-thickness = 0.15
-angle_jitter = 0.5
+thickness = 1.0
 metadata/_custom_type_script = "uid://2nxeo13oc7br"
 
 [sub_resource type="Resource" id="Resource_np5a2"]
 script = ExtResource("8_6krxa")
-brush_name = "Watercolor"
-brush_texture = ExtResource("10_qv3s4")
-brush_size = 0.2
-thickness = 0.15
-opacity = 0.8
-angle_jitter = 0.5
+brush_name = "rectangle"
+stroke_type = 1
+shape_type = 1
+thickness = 1.0
 metadata/_custom_type_script = "uid://2nxeo13oc7br"
 
-[sub_resource type="Resource" id="Resource_bg3q5"]
+[sub_resource type="Resource" id="Resource_diqqf"]
 script = ExtResource("8_6krxa")
-brush_name = "Watercolor2"
-brush_texture = ExtResource("9_qv3s4")
-brush_size = 1.0
-thickness = 0.15
-angle_jitter = 0.9
+brush_name = "circle"
+stroke_type = 1
+shape_type = 2
+thickness = 1.0
 metadata/_custom_type_script = "uid://2nxeo13oc7br"
-
-[sub_resource type="Resource" id="Resource_gxoui"]
-script = ExtResource("8_6krxa")
-brush_name = "paint brush"
-brush_texture = ExtResource("12_ctevo")
-brush_size = 1.0
-thickness = 0.15
-angle_jitter = 0.9
-metadata/_custom_type_script = "uid://2nxeo13oc7br"
-
-[sub_resource type="Resource" id="Resource_v7qi8"]
-script = ExtResource("8_6krxa")
-brush_name = "Watercolor3"
-brush_texture = ExtResource("13_np5a2")
-brush_size = 1.0
-thickness = 0.15
-angle_jitter = 0.9
-metadata/_custom_type_script = "uid://2nxeo13oc7br"
-
-[sub_resource type="Resource" id="Resource_5ttjp"]
-script = ExtResource("8_6krxa")
-brush_name = "Watercolor4"
-brush_texture = ExtResource("14_dhiih")
-brush_size = 1.0
-thickness = 0.15
-angle_jitter = 0.9
-metadata/_custom_type_script = "uid://2nxeo13oc7br"
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ctevo"]
-albedo_color = Color(1, 0.5254902, 0.31764707, 1)
-
-[sub_resource type="BoxMesh" id="BoxMesh_np5a2"]
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_np5a2"]
-albedo_color = Color(0.2901961, 1, 1, 1)
-
-[sub_resource type="BoxMesh" id="BoxMesh_dhiih"]
 
 [node name="Drawing3d" type="Node3D" unique_id=1782563195]
 script = ExtResource("1_sagqa")
@@ -275,7 +226,7 @@ script = ExtResource("5_df3d8")
 
 [node name="StrokeBuilder" type="Node" parent="." unique_id=753207935]
 script = ExtResource("7_y55qp")
-brushes = Array[ExtResource("8_6krxa")]([SubResource("Resource_qv3s4"), SubResource("Resource_np5a2"), SubResource("Resource_bg3q5"), SubResource("Resource_gxoui"), SubResource("Resource_v7qi8"), SubResource("Resource_5ttjp")])
+brushes = Array[ExtResource("8_6krxa")]([SubResource("Resource_qv3s4"), SubResource("Resource_np5a2"), SubResource("Resource_diqqf")])
 metadata/_custom_type_script = "uid://dyeno4mscc7xc"
 
 [node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=1165441771]
@@ -283,12 +234,3 @@ layer = 10
 
 [node name="BrushPanel" parent="CanvasLayer" unique_id=891204932 instance=ExtResource("10_k0w1e")]
 offset_right = 200.0
-
-[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=854669850]
-material_override = SubResource("StandardMaterial3D_ctevo")
-mesh = SubResource("BoxMesh_np5a2")
-
-[node name="MeshInstance3D2" type="MeshInstance3D" parent="." unique_id=2130870560]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -4.2180996)
-material_override = SubResource("StandardMaterial3D_np5a2")
-mesh = SubResource("BoxMesh_dhiih")

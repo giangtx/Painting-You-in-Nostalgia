@@ -107,10 +107,6 @@ func _input(event: InputEvent) -> void:
 			var delta_world = -right * delta.x * pan_speed * _distance * 0.1 \
 				+ up * delta.y * pan_speed * _distance * 0.1
 
-			if active_plane != null:
-				var plane_normal := -active_plane.global_basis.z
-				delta_world -= plane_normal * delta_world.dot(plane_normal)
-
 			_pivot += delta_world
 			_apply_transform()
 

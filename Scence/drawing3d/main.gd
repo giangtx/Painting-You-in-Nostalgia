@@ -25,6 +25,7 @@ var _plane_gizmo: PlaneGizmo = null
 var _alt_held:    bool       = false   # trạng thái Alt hiện tại
 
 var _gizmo_just_attached: bool = false  # flag để detach gizmo khi user click lần đầu
+var _shape_drag_active:   bool = false  # Alt+drag để define size shape
 const DrawingPlaneScene = preload("res://Scence/drawing3d/DrawingPlane.tscn")
 
 # ─── Ready ────────────────────────────────────────────────────
@@ -74,8 +75,8 @@ func _setup_plane_gizmo() -> void:
 	_plane_gizmo.transform_changed.connect(_on_plane_gizmo_transform_changed)
 
 func _setup_brush_panel() -> void:
-	var init_size := stroke_builder.get_current_preset().brush_size \
-					 if stroke_builder.get_current_preset() else 0.08
+	var init_size = stroke_builder.get_current_preset().size \
+					 if stroke_builder.get_current_preset() else 10.0
 	_brush_panel.setup(stroke_builder.brushes, stroke_builder.current_color, init_size)
 	_brush_panel.brush_changed.connect(_on_panel_brush_changed)
 	_brush_panel.brush_size_changed.connect(_on_panel_size_changed)
@@ -126,6 +127,15 @@ func _input(event: InputEvent) -> void:
 				_set_mode(Mode.GUIDE)
 				stroke_builder.cancel_stroke()
 				guide_drawer.start_guide(event.position)
+			elif Input.is_key_pressed(KEY_ALT):
+				# Alt+click → shape drag-size mode (define size bằng kéo)
+				var preset := stroke_builder.get_current_preset()
+				if preset and preset.stroke_type == BrushPreset.StrokeType.SHAPE:
+					_set_mode(Mode.DRAW)
+					_start_shape_drag(event.position)
+				else:
+					_set_mode(Mode.DRAW)
+					_start_stroke(event.position)
 			elif _mode == Mode.ERASE:
 				pass
 			else:
@@ -141,7 +151,10 @@ func _input(event: InputEvent) -> void:
 				guide_drawer.finish_guide()
 				_set_mode(Mode.DRAW)
 			elif _mode == Mode.DRAW:
-				_finish_stroke()
+				if _shape_drag_active:
+					_finish_shape_drag()
+				else:
+					_finish_stroke()
 
 	if event is InputEventMouseMotion:
 		_last_mouse_pos = event.position
@@ -160,7 +173,10 @@ func _input(event: InputEvent) -> void:
 			guide_drawer.add_point(event.position)
 			_update_preview()
 		elif _mode == Mode.DRAW and stroke_builder.is_drawing():
-			_continue_stroke(event.position)
+			if _shape_drag_active:
+				_update_shape_drag(event.position)
+			else:
+				_continue_stroke(event.position)
 		elif _mode == Mode.ERASE and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 			_do_erase(event.position)
 
@@ -178,16 +194,16 @@ func _set_mode(m: Mode) -> void:
 # ─── Panel signal handlers ────────────────────────────────────
 func _on_panel_brush_changed(index: int) -> void:
 	stroke_builder.current_brush_index = index
-	var preset := stroke_builder.get_current_preset()
+	var preset = stroke_builder.get_current_preset()
 	if preset:
-		_brush_panel.sync_size_to(preset.brush_size)
+		_brush_panel.sync_size_to(preset.size)
 		_brush_panel.sync_opacity_to(preset.opacity)
 		_brush_panel.sync_thickness_to(preset.thickness)
 
 func _on_panel_size_changed(value: float) -> void:
-	var preset := stroke_builder.get_current_preset()
+	var preset = stroke_builder.get_current_preset()
 	if preset:
-		preset.brush_size = value
+		preset.size = value
 
 func _on_panel_color_changed(color: Color) -> void:
 	stroke_builder.current_color = color
@@ -201,12 +217,12 @@ func _on_panel_mode_changed(mode_val: int) -> void:
 		_set_mode(Mode.DRAW)
 
 func _on_panel_opacity_changed(value: float) -> void:
-	var preset := stroke_builder.get_current_preset()
+	var preset = stroke_builder.get_current_preset()
 	if preset:
 		preset.opacity = value
 
 func _on_panel_thickness_changed(value: float) -> void:
-	var preset := stroke_builder.get_current_preset()
+	var preset = stroke_builder.get_current_preset()
 	if preset:
 		preset.thickness = value
 
@@ -425,7 +441,28 @@ func _cancel_all() -> void:
 	_clear_hover_highlight()
 	if _plane_gizmo:
 		_plane_gizmo.end_drag()
+	_shape_drag_active = false
 	_set_mode(Mode.DRAW)
+
+func _start_shape_drag(screen_pos: Vector2) -> void:
+	if _active_plane == null: return
+	var hit_data := _raycast_plane(screen_pos)
+	if hit_data.is_empty(): return
+	_shape_drag_active = true
+	stroke_builder.setup(camera, _active_plane.stroke_container, _active_plane)
+	stroke_builder.start_drag_size(hit_data["position"], hit_data["normal"])
+
+func _update_shape_drag(screen_pos: Vector2) -> void:
+	if _active_plane == null or not _shape_drag_active: return
+	var hit_data := _raycast_plane(screen_pos)
+	if hit_data.is_empty(): return
+	stroke_builder.update_drag_size(hit_data["position"])
+
+func _finish_shape_drag() -> void:
+	_shape_drag_active = false
+	var data := stroke_builder.finish_drag_size()
+	if data and _active_plane:
+		_active_plane.add_stroke(data, stroke_builder)
 
 func _focus_active_plane() -> void:
 	if _active_plane == null:
@@ -458,46 +495,46 @@ func _duplicate_active_plane() -> void:
 	new_plane.global_position = src_plane.global_position
 	new_plane.initialize(init_data)
 
-	# Copy strokes: rebuild mesh từ StrokeData trên parent mới
+	# Copy strokes: rebuild mesh từ StrokeData mới trên parent mới
 	stroke_builder.setup(camera, new_plane.stroke_container, new_plane)
 	for stroke_data in strokes:
 		var sd := stroke_data as StrokeBuilder.StrokeData
-		if sd == null or sd.stamp_positions.is_empty():
+		if sd == null or sd.points.is_empty():
 			continue
-		# Rebuild mesh từ stamp data đã có — dùng _build_mesh_from_stamps_local
-		var mi := stroke_builder._build_mesh_from_stamps_local(
-			sd.stamp_positions,
-			sd.stamp_normals,
-			sd.is_surface_normal,
-			sd.preset,
-			sd.rng_seed,
-			sd.color,
-			sd.brush_size,
-			sd.thickness,
-			sd.opacity
-		)
-		if mi:
-			for _si in mi.get_surface_override_material_count():
-				var _sm := mi.get_surface_override_material(_si)
-				if _sm: _sm.render_priority = sd.render_order
-			# Tạo StrokeData mới cho plane mới
-			var new_sd                := StrokeBuilder.StrokeData.new()
-			new_sd.mesh_inst           = mi
-			new_sd.stamp_positions     = sd.stamp_positions.duplicate()
-			new_sd.stamp_normals       = sd.stamp_normals.duplicate()
-			new_sd.is_surface_normal   = sd.is_surface_normal
-			new_sd.rng_seed            = sd.rng_seed
-			new_sd.preset              = sd.preset
-			new_sd.brush_size          = sd.brush_size
-			new_sd.thickness           = sd.thickness
-			new_sd.opacity             = sd.opacity
-			new_sd.spacing             = sd.spacing
-			new_sd.color               = sd.color
-			new_sd.plane_right         = sd.plane_right
-			new_sd.plane_up            = sd.plane_up
-			new_sd.plane_normal        = sd.plane_normal
-			new_sd.render_order        = sd.render_order
-			new_plane.add_stroke(new_sd)
+
+		# Build temp preset từ dữ liệu đã lưu trong StrokeData
+		var temp_preset             := BrushPreset.new()
+		temp_preset.stroke_type      = sd.stroke_type
+		temp_preset.shape_type       = sd.shape_type
+		temp_preset.size             = sd.size     / BrushPreset.PX_TO_UNIT
+		temp_preset.height           = sd.height   / BrushPreset.PX_TO_UNIT
+		temp_preset.thickness        = sd.thickness / BrushPreset.PX_TO_UNIT
+		temp_preset.opacity          = sd.opacity
+		temp_preset.spacing_percent  = sd.spacing  / maxf(sd.size, 0.0001)
+
+		var old_color                := stroke_builder.current_color
+		stroke_builder.current_color  = sd.color
+		var mi := stroke_builder._build_mesh(sd.points, sd.normals, temp_preset, sd.rng_seed)
+		stroke_builder.current_color  = old_color
+
+		if mi == null:
+			continue
+
+		var new_sd              := StrokeBuilder.StrokeData.new()
+		new_sd.mesh_inst         = mi
+		new_sd.points            = sd.points.duplicate()
+		new_sd.normals           = sd.normals.duplicate()
+		new_sd.stroke_type       = sd.stroke_type
+		new_sd.shape_type        = sd.shape_type
+		new_sd.size              = sd.size
+		new_sd.height            = sd.height
+		new_sd.thickness         = sd.thickness
+		new_sd.opacity           = sd.opacity
+		new_sd.spacing           = sd.spacing
+		new_sd.color             = sd.color
+		new_sd.rng_seed          = sd.rng_seed
+		new_sd.render_order      = sd.render_order
+		new_plane.add_stroke(new_sd)
 
 	# Activate plane mới
 	_active_plane = new_plane

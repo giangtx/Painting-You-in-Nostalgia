@@ -188,7 +188,6 @@ layout_mode = 2
 layout_mode = 2
 size_flags_horizontal = 3
 min_value = 0.01
-max_value = 3.0
 step = 0.001
 value = 0.08
 
@@ -238,8 +237,8 @@ layout_mode = 2
 [node name="ThicknessSlider" type="HSlider" parent="PanelContainer/ScrollContainer/MainVBox/SectionThickness/HBoxContainer" unique_id=1117584286]
 layout_mode = 2
 size_flags_horizontal = 3
-max_value = 1.0
-step = 0.01
+max_value = 30.0
+step = 0.1
 value = 0.2
 
 [node name="ThicknessLabel" type="Label" parent="PanelContainer/ScrollContainer/MainVBox/SectionThickness/HBoxContainer" unique_id=599960568]

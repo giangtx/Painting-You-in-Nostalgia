@@ -2,19 +2,23 @@
 class_name BrushPreset
 extends Resource
 
-@export var brush_name: String    = "New Brush"
+enum StrokeType { LINE, SHAPE }
+enum ShapeType  { SQUARE, RECTANGLE, CIRCLE }
 
-# PNG: nền transparent, brush shape dùng alpha channel
-@export var brush_texture: Texture2D = null
+const PX_TO_UNIT := 0.01  # 1 pixel = 0.01 world unit
 
-@export_group("Stroke")
-@export var brush_size:      float = 0.08  # width/height của stamp (world units)
-@export var thickness:       float = 0.5   # độ dày theo chiều sâu (0=flat, 1=cube)
-@export var spacing_percent: float = 0.2   # khoảng cách stamp = brush_size × spacing_percent
-@export var opacity:         float = 1.0
+@export var brush_name:   String     = "New Brush"
+@export var stroke_type:  StrokeType = StrokeType.LINE
+@export var shape_type:   ShapeType  = ShapeType.SQUARE  # chỉ dùng khi stroke_type == SHAPE
 
-@export_group("Jitter")
-@export var angle_jitter:   float = 0.0   # random xoay (radians)
-@export var size_jitter:    float = 0.1   # random scale ±size_jitter
-@export var opacity_jitter: float = 0.1   # random opacity ±opacity_jitter
-@export var scatter:        float = 0.0   # random offset ±scatter × brush_size
+@export_group("Size")
+# Tất cả đơn vị: pixel (1px = PX_TO_UNIT world unit)
+@export var size:      float = 10.0  # width của LINE / SHAPE; diameter của CIRCLE
+@export var height:    float = 10.0  # chỉ cho RECTANGLE (chiều cao trong plane)
+@export var thickness: float = 5.0   # chiều nổi khỏi plane
+@export var opacity:   float = 1.0
+
+# ── Helpers ──────────────────────────────────────────────────────
+func size_u()      -> float: return size      * PX_TO_UNIT
+func height_u()    -> float: return height    * PX_TO_UNIT
+func thickness_u() -> float: return thickness * PX_TO_UNIT
